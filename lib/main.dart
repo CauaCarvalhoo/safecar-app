@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'firebase_options.dart';
 import 'screens/home_page.dart';
 import 'screens/intro_page.dart';
+import 'screens/login_choice_page.dart';
 import 'screens/login_page.dart';
 import 'screens/register_page.dart';
 import 'screens/splash_screen.dart';
@@ -52,13 +53,14 @@ class SafeCarApp extends StatelessWidget {
               icon: Icons.notifications_active_outlined,
               title: 'Alertas claros no aplicativo',
               subtitle: 'Receba avisos de faróis acesos, vidros abertos e movimentações suspeitas.',
-              nextRoute: '/register',
+              nextRoute: '/login_choice',
               backRoute: '/intro2',
             ),
 
-        '/register': (context) => const RegisterPage(),
+        '/login_choice': (context) => const LoginChoicePage(),
         '/login_user': (context) => const LoginPage(userType: 'usuario'),
         '/login_assistant': (context) => const LoginPage(userType: 'assistente'),
+        '/register': (context) => const RegisterPage(),
         '/home': (context) => const HomePage(),
       },
     );
