@@ -1,57 +1,65 @@
-# SafeCar - Protótipo Flutter + ESP32
+# SafeCar - Aplicativo de Segurança Automotiva
 
-Este projeto é o aplicativo piloto do SafeCar, um sistema de segurança automotiva com monitoramento por sensores e alertas no celular.
+O **SafeCar** é um projeto integrador desenvolvido para o curso de Engenharia de Computação da UNISAL.  
+A proposta do sistema é criar uma solução de segurança automotiva baseada em aplicativo mobile, sensores e integração futura com ESP32.
 
-## O que já está funcional
+O aplicativo permite monitorar o estado do veículo, simular alertas e futuramente receber informações reais de sensores instalados em um protótipo físico.
 
-- Fluxo de abertura, introdução, login e painel principal.
-- Tela principal com estado do veículo: portas, faróis, vidros, alarme, impacto e bateria.
-- Modo simulação para testar o app mesmo sem sensores físicos.
-- Histórico de alertas.
-- Comunicação HTTP preparada para o ESP32.
-- Firmware de exemplo para ESP32 em `firmware/esp32_safecar_mock`.
+---
 
-## Como rodar o app
+## Objetivo do Projeto
 
-```bash
-flutter pub get
-flutter run
-```
+Desenvolver um sistema de monitoramento automotivo capaz de alertar o usuário sobre possíveis situações de risco ou descuido, como:
 
-## Como testar sem sensores
+- Faróis esquecidos acesos
+- Vidros abertos
+- Portas destrancadas
+- Impactos ou vibrações suspeitas
+- Estado do alarme
+- Comunicação futura com ESP32
 
-1. Abra o app.
-2. Faça login com qualquer e-mail válido e senha com 6 ou mais caracteres.
-3. Deixe o "Modo simulação" ativado.
-4. Use os botões de ação para simular faróis acesos, vidro aberto e impacto suspeito.
+---
 
-## Como testar com o ESP32
+## Tecnologias Utilizadas
 
-1. Abra `firmware/esp32_safecar_mock/esp32_safecar_mock.ino` na Arduino IDE.
-2. Grave no ESP32.
-3. No celular, conecte ao Wi-Fi `SafeCar-ESP32` com a senha `safecar123`.
-4. No app, desligue o "Modo simulação".
-5. Use o IP `192.168.4.1` e toque em "Conectar ao ESP32".
+- Flutter
+- Dart
+- ESP32
+- HTTP
+- IoT
+- Git e GitHub
 
-## Endpoints do ESP32
+---
 
-- `GET /status`: retorna o estado atual do veículo.
-- `GET /command?name=lock_doors`: tranca portas.
-- `GET /command?name=unlock_doors`: destranca portas.
-- `GET /command?name=toggle_alarm`: ativa/desativa alarme.
-- `GET /command?name=toggle_lights`: alterna faróis.
-- `GET /command?name=turn_off_lights`: apaga faróis.
-- `GET /command?name=toggle_windows`: alterna vidros.
-- `GET /command?name=close_windows`: fecha vidros.
-- `GET /command?name=simulate_impact`: simula impacto.
-- `GET /command?name=clear_events`: limpa evento de impacto.
+## Funcionalidades Atuais
 
-## Próximos componentes sugeridos
+- Tela inicial com identidade visual do SafeCar
+- Telas de introdução
+- Cadastro e login em modo protótipo
+- Home com status do veículo
+- Modo simulação
+- Histórico de alertas
+- Simulação de impacto
+- Simulação de faróis acesos
+- Simulação de vidro aberto
+- Preparação para comunicação com ESP32 via Wi-Fi
 
-- Sensor de vibração/impacto SW-420 ou módulo acelerômetro MPU6050.
-- Sensor magnético reed switch para portas/vidros.
-- Sensor de luminosidade LDR ou leitura elétrica protegida para faróis.
-- Módulo relé apenas para testes seguros em bancada, sem ligação direta ao carro real.
-- Protoboard, jumpers, resistores e fonte adequada para o ESP32.
+---
 
-> Atenção: não conecte o ESP32 diretamente ao sistema elétrico real do carro sem proteção, divisor de tensão, optoacoplador ou módulo adequado. Para apresentação acadêmica, faça primeiro em bancada.
+## Estrutura do Projeto
+
+```text
+lib/
+├── main.dart
+├── models/
+│   └── vehicle_status.dart
+├── screens/
+│   ├── splash_screen.dart
+│   ├── intro_page.dart
+│   ├── login_page.dart
+│   ├── register_page.dart
+│   └── home_page.dart
+├── services/
+│   └── safecar_service.dart
+└── theme/
+    └── app_theme.dart
