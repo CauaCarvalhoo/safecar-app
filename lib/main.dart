@@ -1,5 +1,7 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 
+import 'firebase_options.dart';
 import 'screens/home_page.dart';
 import 'screens/intro_page.dart';
 import 'screens/login_page.dart';
@@ -7,7 +9,13 @@ import 'screens/register_page.dart';
 import 'screens/splash_screen.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const SafeCarApp());
 }
 
@@ -23,6 +31,7 @@ class SafeCarApp extends StatelessWidget {
       initialRoute: '/',
       routes: {
         '/': (context) => const SplashScreen(),
+
         '/intro1': (context) => const IntroPage(
               icon: Icons.security,
               title: 'Proteção inteligente para o seu veículo',
@@ -30,6 +39,7 @@ class SafeCarApp extends StatelessWidget {
               showSkip: true,
               nextRoute: '/intro2',
             ),
+
         '/intro2': (context) => const IntroPage(
               icon: Icons.sensors,
               title: 'Sensores conectados ao ESP32',
@@ -37,6 +47,7 @@ class SafeCarApp extends StatelessWidget {
               nextRoute: '/intro3',
               backRoute: '/intro1',
             ),
+
         '/intro3': (context) => const IntroPage(
               icon: Icons.notifications_active_outlined,
               title: 'Alertas claros no aplicativo',
@@ -44,6 +55,7 @@ class SafeCarApp extends StatelessWidget {
               nextRoute: '/register',
               backRoute: '/intro2',
             ),
+
         '/register': (context) => const RegisterPage(),
         '/login_user': (context) => const LoginPage(userType: 'usuario'),
         '/login_assistant': (context) => const LoginPage(userType: 'assistente'),
