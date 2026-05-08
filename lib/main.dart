@@ -8,6 +8,7 @@ import 'screens/login_choice_page.dart';
 import 'screens/login_page.dart';
 import 'screens/register_page.dart';
 import 'screens/splash_screen.dart';
+import 'screens/vehicle_profile_page.dart';
 import 'theme/app_theme.dart';
 
 Future<void> main() async {
@@ -62,6 +63,7 @@ class SafeCarApp extends StatelessWidget {
         '/login_assistant': (context) => const LoginPage(userType: 'assistente'),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const HomePage(),
+        '/vehicle_profile': (context) => const VehicleProfilePage(),
       },
     );
   }

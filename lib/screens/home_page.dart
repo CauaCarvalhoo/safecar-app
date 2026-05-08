@@ -21,9 +21,13 @@ class _HomePageState extends State<HomePage> {
 
   VehicleStatus _status = VehicleStatus.initial();
   final List<AlertEvent> _history = [];
+
+  Map<String, dynamic>? _vehicleData;
+
   Timer? _timer;
   bool _loading = false;
   bool _loadingHistory = false;
+  bool _loadingVehicle = false;
   String? _errorMessage;
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
@@ -31,6 +35,7 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    _loadVehicleDataFromFirestore();
     _loadAlertHistoryFromFirestore();
     _refreshStatus();
     _timer = Timer.periodic(
@@ -131,6 +136,53 @@ class _HomePageState extends State<HomePage> {
 
     for (final alert in newAlerts) {
       unawaited(_saveAlertToFirestore(alert));
+    }
+  }
+
+  Future<void> _loadVehicleDataFromFirestore() async {
+    final user = _currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    setState(() {
+      _loadingVehicle = true;
+    });
+
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('vehicles')
+          .doc('main')
+          .get();
+
+      if (!mounted) return;
+
+      setState(() {
+        _vehicleData = doc.exists ? doc.data() : null;
+        _loadingVehicle = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _loadingVehicle = false;
+        _errorMessage = 'Não foi possível carregar os dados do veículo.';
+      });
+    }
+  }
+
+  Future<void> _openVehicleProfile() async {
+    final updated = await Navigator.pushNamed(context, '/vehicle_profile');
+
+    if (!mounted) return;
+
+    if (updated == true) {
+      await _loadVehicleDataFromFirestore();
+    } else {
+      await _loadVehicleDataFromFirestore();
     }
   }
 
@@ -342,6 +394,7 @@ class _HomePageState extends State<HomePage> {
       body: RefreshIndicator(
         onRefresh: () async {
           await _refreshStatus();
+          await _loadVehicleDataFromFirestore();
           await _loadAlertHistoryFromFirestore();
         },
         child: ListView(
@@ -351,6 +404,8 @@ class _HomePageState extends State<HomePage> {
               _buildUserCard(userName, userEmail),
               const SizedBox(height: 16),
             ],
+            _buildVehicleCard(),
+            const SizedBox(height: 16),
             _buildHeaderCard(),
             const SizedBox(height: 16),
             _buildConfigCard(),
@@ -400,9 +455,127 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildVehicleCard() {
+    final vehicle = _vehicleData;
+
+    final nickname = vehicle?['nickname']?.toString() ?? 'Cadastrar veículo';
+    final brand = vehicle?['brand']?.toString() ?? '';
+    final model = vehicle?['model']?.toString() ?? '';
+    final year = vehicle?['year']?.toString() ?? '';
+    final plate = vehicle?['plate']?.toString() ?? '';
+    final color = vehicle?['color']?.toString() ?? '';
+    final imageUrl = vehicle?['imageUrl']?.toString() ?? '';
+
+    final hasVehicle = vehicle != null;
+    final subtitle = hasVehicle
+        ? [
+            if (brand.isNotEmpty || model.isNotEmpty) '$brand $model'.trim(),
+            if (year.isNotEmpty) year,
+            if (plate.isNotEmpty) 'Placa: $plate',
+            if (color.isNotEmpty) 'Cor: $color',
+          ].join(' • ')
+        : 'Toque aqui para cadastrar os dados do veículo monitorado.';
+
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: _openVehicleProfile,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              _buildVehicleImage(imageUrl),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Veículo monitorado',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 6),
+                    if (_loadingVehicle)
+                      const Text(
+                        'Carregando dados do veículo...',
+                        style: TextStyle(color: Colors.black54),
+                      )
+                    else ...[
+                      Text(
+                        nickname,
+                        style: const TextStyle(
+                          color: AppTheme.primaryDark,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right,
+                color: Colors.black45,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleImage(String imageUrl) {
+    if (imageUrl.isEmpty) {
+      return Container(
+        width: 76,
+        height: 76,
+        decoration: BoxDecoration(
+          color: AppTheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Icon(
+          Icons.directions_car_filled_rounded,
+          color: AppTheme.primary,
+          size: 40,
+        ),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Image.network(
+        imageUrl,
+        width: 76,
+        height: 76,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            width: 76,
+            height: 76,
+            decoration: BoxDecoration(
+              color: AppTheme.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Icon(
+              Icons.broken_image_outlined,
+              color: AppTheme.warning,
+              size: 34,
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildHeaderCard() {
     final hasAlerts = _status.activeAlerts.isNotEmpty;
-    final statusText = hasAlerts ? 'Atenção necessária' : 'Veículo monitorado';
+    final statusText = hasAlerts ? 'Atenção necessária' : 'Monitoramento ativo';
     final statusIcon = hasAlerts ? Icons.warning_amber_rounded : Icons.shield_outlined;
     final statusColor = hasAlerts ? AppTheme.warning : AppTheme.primary;
 
