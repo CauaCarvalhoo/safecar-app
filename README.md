@@ -43,6 +43,12 @@ Desenvolver um sistema de monitoramento automotivo capaz de alertar o usuário s
 - Simulação de faróis acesos
 - Simulação de vidro aberto
 - Preparação para comunicação com ESP32 via Wi-Fi
+- Cadastro real de usuários com Firebase Authentication
+- Login real com Firebase Authentication
+- Histórico de alertas salvo no Firestore
+- Cadastro e edição do veículo monitorado
+- Imagem do veículo salva no Firestore em Base64
+- Regras de segurança do Firestore
 
 ---
 
