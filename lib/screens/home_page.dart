@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../models/vehicle_status.dart';
@@ -21,11 +23,15 @@ class _HomePageState extends State<HomePage> {
   final List<AlertEvent> _history = [];
   Timer? _timer;
   bool _loading = false;
+  bool _loadingHistory = false;
   String? _errorMessage;
+
+  User? get _currentUser => FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
+    _loadAlertHistoryFromFirestore();
     _refreshStatus();
     _timer = Timer.periodic(
       const Duration(seconds: 3),
@@ -102,18 +108,173 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _registerAlerts(List<AlertEvent> alerts) {
+    final now = DateTime.now();
+    final newAlerts = <AlertEvent>[];
+
     for (final alert in alerts) {
-      final alreadyInserted = _history.isNotEmpty &&
-          _history.first.title == alert.title &&
-          DateTime.now().difference(_history.first.time).inSeconds < 8;
+      final alreadyInserted = _history.any(
+        (item) =>
+            item.title == alert.title &&
+            item.message == alert.message &&
+            now.difference(item.time).inSeconds < 30,
+      );
 
       if (!alreadyInserted) {
         _history.insert(0, alert);
+        newAlerts.add(alert);
       }
     }
 
     if (_history.length > 20) {
       _history.removeRange(20, _history.length);
+    }
+
+    for (final alert in newAlerts) {
+      unawaited(_saveAlertToFirestore(alert));
+    }
+  }
+
+  Future<void> _loadAlertHistoryFromFirestore() async {
+    final user = _currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    setState(() {
+      _loadingHistory = true;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('alerts')
+          .orderBy('createdAt', descending: true)
+          .limit(20)
+          .get();
+
+      final alerts = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final timestamp = data['createdAt'];
+
+        DateTime alertTime = DateTime.now();
+
+        if (timestamp is Timestamp) {
+          alertTime = timestamp.toDate();
+        }
+
+        return AlertEvent(
+          title: data['title']?.toString() ?? 'Alerta SafeCar',
+          message: data['message']?.toString() ?? 'Evento registrado no sistema.',
+          time: alertTime,
+          severity: _severityFromString(data['severity']?.toString() ?? 'warning'),
+        );
+      }).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _history
+          ..clear()
+          ..addAll(alerts);
+        _loadingHistory = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _loadingHistory = false;
+        _errorMessage = 'Não foi possível carregar o histórico do Firebase.';
+      });
+    }
+  }
+
+  Future<void> _saveAlertToFirestore(AlertEvent alert) async {
+    final user = _currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('alerts').add({
+        'title': alert.title,
+        'message': alert.message,
+        'severity': _severityToString(alert.severity),
+        'source': _status.source,
+        'createdAt': Timestamp.fromDate(alert.time),
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Alerta exibido localmente, mas não foi salvo no Firebase.';
+      });
+    }
+  }
+
+  Future<void> _clearHistory() async {
+    final user = _currentUser;
+
+    setState(() {
+      _history.clear();
+    });
+
+    if (user == null) {
+      return;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('alerts')
+          .limit(50)
+          .get();
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      await batch.commit();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Histórico de alertas limpo.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Histórico local limpo, mas houve falha ao limpar o Firebase.')),
+      );
+    }
+  }
+
+  AlertSeverity _severityFromString(String severity) {
+    switch (severity) {
+      case 'danger':
+        return AlertSeverity.danger;
+      case 'info':
+        return AlertSeverity.info;
+      case 'warning':
+      default:
+        return AlertSeverity.warning;
+    }
+  }
+
+  String _severityToString(AlertSeverity severity) {
+    switch (severity) {
+      case AlertSeverity.danger:
+        return 'danger';
+      case AlertSeverity.info:
+        return 'info';
+      case AlertSeverity.warning:
+        return 'warning';
     }
   }
 
@@ -136,14 +297,23 @@ class _HomePageState extends State<HomePage> {
     _refreshStatus();
   }
 
-  void _clearHistory() {
-    setState(() {
-      _history.clear();
-    });
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/login_choice',
+      (route) => false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final userName = _currentUser?.displayName;
+    final userEmail = _currentUser?.email;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('SafeCar'),
@@ -165,15 +335,22 @@ class _HomePageState extends State<HomePage> {
           IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout),
-            onPressed: () => Navigator.pushReplacementNamed(context, '/'),
+            onPressed: _logout,
           ),
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _refreshStatus,
+        onRefresh: () async {
+          await _refreshStatus();
+          await _loadAlertHistoryFromFirestore();
+        },
         child: ListView(
           padding: const EdgeInsets.all(18),
           children: [
+            if (userName != null || userEmail != null) ...[
+              _buildUserCard(userName, userEmail),
+              const SizedBox(height: 16),
+            ],
             _buildHeaderCard(),
             const SizedBox(height: 16),
             _buildConfigCard(),
@@ -183,6 +360,40 @@ class _HomePageState extends State<HomePage> {
             _buildActionPanel(),
             const SizedBox(height: 16),
             _buildAlertHistory(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUserCard(String? userName, String? userEmail) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            const CircleAvatar(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: Colors.white,
+              child: Icon(Icons.person_outline),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    userName ?? 'Usuário SafeCar',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    userEmail ?? 'Conta conectada ao Firebase',
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -470,12 +681,14 @@ class _HomePageState extends State<HomePage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Histórico de alertas',
-                  style: Theme.of(context).textTheme.titleLarge,
+                Expanded(
+                  child: Text(
+                    _loadingHistory ? 'Carregando histórico...' : 'Histórico de alertas',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                 ),
                 TextButton(
-                  onPressed: _history.isEmpty ? null : _clearHistory,
+                  onPressed: _history.isEmpty ? null : () => _clearHistory(),
                   child: const Text('Limpar'),
                 ),
               ],
@@ -490,7 +703,9 @@ class _HomePageState extends State<HomePage> {
               ..._history.map((alert) {
                 final color = alert.severity == AlertSeverity.danger
                     ? AppTheme.danger
-                    : AppTheme.warning;
+                    : alert.severity == AlertSeverity.info
+                        ? AppTheme.primary
+                        : AppTheme.warning;
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 10),
