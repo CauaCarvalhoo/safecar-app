@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "243342109546",
+    "project_id": "safecar-fca02",
+    "storage_bucket": "safecar-fca02.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:243342109546:android:4f8639fc1f6f3205f15313",
+        "android_client_info": {
+          "package_name": "com.example.piloto"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCxzP7d7GpAdps7vtrLla7hTahdQLD4zAw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
