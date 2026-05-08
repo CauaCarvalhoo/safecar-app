@@ -1,6 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../theme/app_theme.dart';
 
@@ -13,6 +17,7 @@ class VehicleProfilePage extends StatefulWidget {
 
 class _VehicleProfilePageState extends State<VehicleProfilePage> {
   final _formKey = GlobalKey<FormState>();
+  final ImagePicker _imagePicker = ImagePicker();
 
   final _nicknameController = TextEditingController();
   final _brandController = TextEditingController();
@@ -20,7 +25,10 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
   final _yearController = TextEditingController();
   final _plateController = TextEditingController();
   final _colorController = TextEditingController();
-  final _imageUrlController = TextEditingController();
+
+  Uint8List? _vehicleImageBytes;
+  String? _vehicleImageBase64;
+  String? _vehicleImageName;
 
   bool _loading = false;
   bool _saving = false;
@@ -41,7 +49,6 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     _yearController.dispose();
     _plateController.dispose();
     _colorController.dispose();
-    _imageUrlController.dispose();
     super.dispose();
   }
 
@@ -73,7 +80,14 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
         _yearController.text = data?['year']?.toString() ?? '';
         _plateController.text = data?['plate']?.toString() ?? '';
         _colorController.text = data?['color']?.toString() ?? '';
-        _imageUrlController.text = data?['imageUrl']?.toString() ?? '';
+
+        final savedImageBase64 = data?['imageBase64']?.toString();
+
+        if (savedImageBase64 != null && savedImageBase64.isNotEmpty) {
+          _vehicleImageBase64 = savedImageBase64;
+          _vehicleImageBytes = base64Decode(savedImageBase64);
+          _vehicleImageName = data?['imageName']?.toString();
+        }
       }
     } catch (error) {
       if (!mounted) return;
@@ -90,6 +104,56 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
         });
       }
     }
+  }
+
+  Future<void> _pickVehicleImage() async {
+    try {
+      final pickedImage = await _imagePicker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 800,
+        imageQuality: 55,
+      );
+
+      if (pickedImage == null) {
+        return;
+      }
+
+      final bytes = await pickedImage.readAsBytes();
+      final imageBase64 = base64Encode(bytes);
+
+      if (imageBase64.length > 900000) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Imagem muito grande. Escolha uma imagem menor.'),
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        _vehicleImageBytes = bytes;
+        _vehicleImageBase64 = imageBase64;
+        _vehicleImageName = pickedImage.name;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível selecionar a imagem.'),
+        ),
+      );
+    }
+  }
+
+  void _removeVehicleImage() {
+    setState(() {
+      _vehicleImageBytes = null;
+      _vehicleImageBase64 = null;
+      _vehicleImageName = null;
+    });
   }
 
   Future<void> _saveVehicleData() async {
@@ -125,7 +189,8 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
         'year': _yearController.text.trim(),
         'plate': _plateController.text.trim().toUpperCase(),
         'color': _colorController.text.trim(),
-        'imageUrl': _imageUrlController.text.trim(),
+        'imageBase64': _vehicleImageBase64 ?? '',
+        'imageName': _vehicleImageName ?? '',
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -154,11 +219,9 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
   }
 
   Widget _buildVehiclePreview() {
-    final imageUrl = _imageUrlController.text.trim();
-
-    if (imageUrl.isEmpty) {
+    if (_vehicleImageBytes == null) {
       return Container(
-        height: 180,
+        height: 190,
         decoration: BoxDecoration(
           color: AppTheme.primary.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(24),
@@ -175,26 +238,11 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
-      child: Image.network(
-        imageUrl,
-        height: 180,
+      child: Image.memory(
+        _vehicleImageBytes!,
+        height: 190,
         width: double.infinity,
         fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            height: 180,
-            decoration: BoxDecoration(
-              color: AppTheme.warning.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(24),
-            ),
-            child: const Center(
-              child: Text(
-                'Não foi possível carregar a imagem.',
-                style: TextStyle(color: Colors.black54),
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -236,27 +284,42 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                               ),
                               const SizedBox(height: 8),
                               const Text(
-                                'Essas informações serão salvas no Firebase e usadas na tela principal do SafeCar.',
+                                'Cadastre as informações do veículo que será monitorado pelo SafeCar.',
                                 style: TextStyle(color: Colors.black54),
                               ),
                               const SizedBox(height: 18),
 
                               _buildVehiclePreview(),
-                              const SizedBox(height: 18),
+                              const SizedBox(height: 12),
 
-                              TextFormField(
-                                controller: _imageUrlController,
-                                keyboardType: TextInputType.url,
-                                decoration: const InputDecoration(
-                                  labelText: 'URL da imagem do veículo',
-                                  hintText: 'https://exemplo.com/carro.jpg',
-                                  prefixIcon: Icon(Icons.image_outlined),
-                                ),
-                                onChanged: (_) {
-                                  setState(() {});
-                                },
+                              ElevatedButton.icon(
+                                onPressed: isBusy ? null : _pickVehicleImage,
+                                icon: const Icon(Icons.photo_library_outlined),
+                                label: const Text('Escolher imagem do veículo'),
                               ),
-                              const SizedBox(height: 16),
+
+                              if (_vehicleImageBytes != null) ...[
+                                const SizedBox(height: 8),
+                                OutlinedButton.icon(
+                                  onPressed: isBusy ? null : _removeVehicleImage,
+                                  icon: const Icon(Icons.delete_outline),
+                                  label: const Text('Remover imagem'),
+                                ),
+                              ],
+
+                              if (_vehicleImageName != null && _vehicleImageName!.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Imagem selecionada: $_vehicleImageName',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Colors.black54,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+
+                              const SizedBox(height: 18),
 
                               TextFormField(
                                 controller: _nicknameController,

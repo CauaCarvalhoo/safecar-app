@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -175,15 +176,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openVehicleProfile() async {
-    final updated = await Navigator.pushNamed(context, '/vehicle_profile');
+    await Navigator.pushNamed(context, '/vehicle_profile');
 
     if (!mounted) return;
 
-    if (updated == true) {
-      await _loadVehicleDataFromFirestore();
-    } else {
-      await _loadVehicleDataFromFirestore();
-    }
+    await _loadVehicleDataFromFirestore();
   }
 
   Future<void> _loadAlertHistoryFromFirestore() async {
@@ -464,7 +461,7 @@ class _HomePageState extends State<HomePage> {
     final year = vehicle?['year']?.toString() ?? '';
     final plate = vehicle?['plate']?.toString() ?? '';
     final color = vehicle?['color']?.toString() ?? '';
-    final imageUrl = vehicle?['imageUrl']?.toString() ?? '';
+    final imageBase64 = vehicle?['imageBase64']?.toString() ?? '';
 
     final hasVehicle = vehicle != null;
     final subtitle = hasVehicle
@@ -484,7 +481,7 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.all(18),
           child: Row(
             children: [
-              _buildVehicleImage(imageUrl),
+              _buildVehicleImage(imageBase64),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -530,8 +527,8 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildVehicleImage(String imageUrl) {
-    if (imageUrl.isEmpty) {
+  Widget _buildVehicleImage(String imageBase64) {
+    if (imageBase64.isEmpty) {
       return Container(
         width: 76,
         height: 76,
@@ -547,30 +544,33 @@ class _HomePageState extends State<HomePage> {
       );
     }
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: Image.network(
-        imageUrl,
+    try {
+      final imageBytes = base64Decode(imageBase64);
+
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Image.memory(
+          imageBytes,
+          width: 76,
+          height: 76,
+          fit: BoxFit.cover,
+        ),
+      );
+    } catch (error) {
+      return Container(
         width: 76,
         height: 76,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            width: 76,
-            height: 76,
-            decoration: BoxDecoration(
-              color: AppTheme.warning.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Icon(
-              Icons.broken_image_outlined,
-              color: AppTheme.warning,
-              size: 34,
-            ),
-          );
-        },
-      ),
-    );
+        decoration: BoxDecoration(
+          color: AppTheme.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Icon(
+          Icons.broken_image_outlined,
+          color: AppTheme.warning,
+          size: 34,
+        ),
+      );
+    }
   }
 
   Widget _buildHeaderCard() {
