@@ -17,13 +17,15 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _TrackingPoint {
+class _TelemetryPoint {
   final DateTime time;
   final double speedKmh;
+  final int rpm;
 
-  const _TrackingPoint({
+  const _TelemetryPoint({
     required this.time,
     required this.speedKmh,
+    required this.rpm,
   });
 }
 
@@ -32,21 +34,31 @@ class _HomePageState extends State<HomePage> {
 
   Map<String, dynamic>? _vehicleData;
 
-  Timer? _trackingTimer;
+  Timer? _tripTimer;
 
   bool _loadingVehicle = false;
-  bool _trackingActive = false;
+  bool _tripActive = false;
+
+  DateTime? _tripStartedAt;
 
   double _latitude = -22.7371;
   double _longitude = -47.3331;
+
   double _currentSpeedKmh = 0;
   double _averageSpeedKmh = 0;
+  double _maxSpeedKmh = 0;
   double _distanceKm = 0;
 
-  final List<_TrackingPoint> _speedHistory = [];
+  int _rpm = 0;
+  int _engineTemp = 82;
+  int _fuelPercent = 61;
+  int _driverScore = 100;
+  int _harshEvents = 0;
+  int _overspeedEvents = 0;
+
+  final List<_TelemetryPoint> _telemetryHistory = [];
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
-
 
   String get _vehicleNickname {
     return _vehicleData?['nickname']?.toString() ?? 'Veículo não cadastrado';
@@ -72,19 +84,29 @@ class _HomePageState extends State<HomePage> {
   }
 
   String get _statusText {
-    return _trackingActive ? 'Em movimento' : 'Estacionado';
+    return _tripActive ? 'Viagem em andamento' : 'Veículo parado';
+  }
+
+  Duration get _tripDuration {
+    final startedAt = _tripStartedAt;
+
+    if (startedAt == null) {
+      return Duration.zero;
+    }
+
+    return DateTime.now().difference(startedAt);
   }
 
   @override
   void initState() {
     super.initState();
     _loadVehicleDataFromFirestore();
-    _addSpeedPoint(0);
+    _addTelemetryPoint(speed: 0, rpm: 0);
   }
 
   @override
   void dispose() {
-    _trackingTimer?.cancel();
+    _tripTimer?.cancel();
     super.dispose();
   }
 
@@ -136,50 +158,69 @@ class _HomePageState extends State<HomePage> {
     await _loadVehicleDataFromFirestore();
   }
 
-  void _startTrackingSimulation() {
-    _trackingTimer?.cancel();
+  void _startTripSimulation() {
+    _tripTimer?.cancel();
 
     setState(() {
-      _trackingActive = true;
+      _tripActive = true;
+      _tripStartedAt ??= DateTime.now();
     });
 
-    _simulateTrackingTick();
+    _simulateObdTick();
 
-    _trackingTimer = Timer.periodic(
+    _tripTimer = Timer.periodic(
       const Duration(seconds: 2),
-      (_) => _simulateTrackingTick(),
+      (_) => _simulateObdTick(),
     );
   }
 
-  void _stopTrackingSimulation() {
-    _trackingTimer?.cancel();
+  void _pauseTripSimulation() {
+    _tripTimer?.cancel();
 
     setState(() {
-      _trackingActive = false;
+      _tripActive = false;
       _currentSpeedKmh = 0;
-      _addSpeedPoint(0);
-      _calculateAverageSpeed();
+      _rpm = 0;
+      _addTelemetryPoint(speed: 0, rpm: 0);
+      _calculateTripStats();
     });
   }
 
-  void _resetTrackingSimulation() {
-    _trackingTimer?.cancel();
+  void _resetTripSimulation() {
+    _tripTimer?.cancel();
 
     setState(() {
-      _trackingActive = false;
+      _tripActive = false;
+      _tripStartedAt = null;
+
       _latitude = -22.7371;
       _longitude = -47.3331;
+
       _currentSpeedKmh = 0;
       _averageSpeedKmh = 0;
+      _maxSpeedKmh = 0;
       _distanceKm = 0;
-      _speedHistory.clear();
-      _addSpeedPoint(0);
+
+      _rpm = 0;
+      _engineTemp = 82;
+      _fuelPercent = 61;
+      _driverScore = 100;
+      _harshEvents = 0;
+      _overspeedEvents = 0;
+
+      _telemetryHistory.clear();
+      _addTelemetryPoint(speed: 0, rpm: 0);
     });
   }
 
-  void _simulateTrackingTick() {
-    final variation = _random.nextDouble() * 16 - 8;
-    final nextSpeed = (38 + variation + _random.nextInt(34)).clamp(8.0, 92.0);
+  void _simulateObdTick() {
+    final previousSpeed = _currentSpeedKmh;
+
+    final baseSpeed = 42 + _random.nextInt(36);
+    final variation = _random.nextDouble() * 18 - 9;
+    final nextSpeed = (baseSpeed + variation).clamp(8.0, 105.0);
+
+    final speedDifference = (nextSpeed - previousSpeed).abs();
 
     const intervalSeconds = 2;
     final distanceIncrement = nextSpeed * intervalSeconds / 3600;
@@ -187,31 +228,57 @@ class _HomePageState extends State<HomePage> {
     final latitudeIncrement = (_random.nextDouble() - 0.5) * 0.00018;
     final longitudeIncrement = distanceIncrement * 0.010;
 
+    final simulatedRpm = (850 + nextSpeed * 32 + _random.nextInt(420)).round();
+    final nextEngineTemp = (82 + _random.nextInt(13)).clamp(82, 98);
+    final fuelLoss = _distanceKm > 0 && _distanceKm % 2 < 0.02 ? 1 : 0;
+
     setState(() {
       _currentSpeedKmh = nextSpeed;
+      _rpm = simulatedRpm;
+      _engineTemp = nextEngineTemp;
+      _fuelPercent = max(0, _fuelPercent - fuelLoss);
+
       _distanceKm += distanceIncrement;
       _latitude += latitudeIncrement;
       _longitude += longitudeIncrement;
-      _addSpeedPoint(nextSpeed);
-      _calculateAverageSpeed();
+
+      if (nextSpeed > _maxSpeedKmh) {
+        _maxSpeedKmh = nextSpeed;
+      }
+
+      if (nextSpeed > 80) {
+        _overspeedEvents++;
+      }
+
+      if (speedDifference > 28) {
+        _harshEvents++;
+      }
+
+      _addTelemetryPoint(speed: nextSpeed, rpm: simulatedRpm);
+      _calculateTripStats();
+      _calculateDriverScore();
     });
   }
 
-  void _addSpeedPoint(double speed) {
-    _speedHistory.add(
-      _TrackingPoint(
+  void _addTelemetryPoint({
+    required double speed,
+    required int rpm,
+  }) {
+    _telemetryHistory.add(
+      _TelemetryPoint(
         time: DateTime.now(),
         speedKmh: speed,
+        rpm: rpm,
       ),
     );
 
-    if (_speedHistory.length > 20) {
-      _speedHistory.removeAt(0);
+    if (_telemetryHistory.length > 24) {
+      _telemetryHistory.removeAt(0);
     }
   }
 
-  void _calculateAverageSpeed() {
-    final movingSpeeds = _speedHistory
+  void _calculateTripStats() {
+    final movingSpeeds = _telemetryHistory
         .where((point) => point.speedKmh > 0)
         .map((point) => point.speedKmh)
         .toList();
@@ -223,6 +290,17 @@ class _HomePageState extends State<HomePage> {
 
     final total = movingSpeeds.reduce((a, b) => a + b);
     _averageSpeedKmh = total / movingSpeeds.length;
+  }
+
+  void _calculateDriverScore() {
+    final overspeedPenalty = _overspeedEvents * 3;
+    final harshPenalty = _harshEvents * 6;
+    final maxSpeedPenalty = _maxSpeedKmh > 100 ? 8 : 0;
+    final rpmPenalty = _rpm > 4200 ? 4 : 0;
+
+    final score = 100 - overspeedPenalty - harshPenalty - maxSpeedPenalty - rpmPenalty;
+
+    _driverScore = score.clamp(0, 100);
   }
 
   Future<void> _copyLocation() async {
@@ -254,12 +332,44 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours.toString().padLeft(2, '0');
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+
+    return '$hours:$minutes:$seconds';
+  }
+
+  Color _scoreColor() {
+    if (_driverScore >= 85) {
+      return AppTheme.success;
+    }
+
+    if (_driverScore >= 65) {
+      return AppTheme.warning;
+    }
+
+    return AppTheme.danger;
+  }
+
+  String _scoreLabel() {
+    if (_driverScore >= 85) {
+      return 'Excelente';
+    }
+
+    if (_driverScore >= 65) {
+      return 'Atenção';
+    }
+
+    return 'Risco';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: const Text('SafeCar Tracker'),
+        title: const Text('SafeCar Fleet'),
         actions: [
           IconButton(
             tooltip: 'Atualizar veículo',
@@ -280,17 +390,17 @@ class _HomePageState extends State<HomePage> {
           children: [
             _buildVehicleHeroCard(),
             const SizedBox(height: 16),
+            _buildDriverScoreCard(),
+            const SizedBox(height: 16),
             _buildMapCard(),
             const SizedBox(height: 16),
             _buildMetricGrid(),
             const SizedBox(height: 16),
-            _buildTrackingControls(),
+            _buildTripControls(),
             const SizedBox(height: 16),
             _buildSpeedChart(),
             const SizedBox(height: 16),
-            _buildTrackerInfoCard(),
-            const SizedBox(height: 16),
-            _buildVehicleSettingsCard(),
+            _buildFleetInfoCard(),
           ],
         ),
       ),
@@ -334,7 +444,7 @@ class _HomePageState extends State<HomePage> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: _trackingActive
+                  color: _tripActive
                       ? AppTheme.primary.withValues(alpha: 0.10)
                       : Colors.black.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(20),
@@ -342,16 +452,25 @@ class _HomePageState extends State<HomePage> {
                 child: Row(
                   children: [
                     Icon(
-                      _trackingActive ? Icons.directions_car : Icons.local_parking,
-                      color: _trackingActive ? AppTheme.primary : Colors.black54,
+                      _tripActive ? Icons.directions_car : Icons.local_parking,
+                      color: _tripActive ? AppTheme.primary : Colors.black54,
                     ),
                     const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _statusText,
+                        style: TextStyle(
+                          color: _tripActive ? AppTheme.primaryDark : Colors.black87,
+                          fontSize: 23,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                     Text(
-                      _statusText,
-                      style: TextStyle(
-                        color: _trackingActive ? AppTheme.primaryDark : Colors.black87,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
+                      _formatDuration(_tripDuration),
+                      style: const TextStyle(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
@@ -409,6 +528,65 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  Widget _buildDriverScoreCard() {
+    final scoreColor = _scoreColor();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Row(
+          children: [
+            Container(
+              width: 96,
+              height: 96,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scoreColor.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: scoreColor,
+                  width: 6,
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  '$_driverScore',
+                  style: TextStyle(
+                    color: scoreColor,
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Qualidade do motorista', style: Theme.of(context).textTheme.titleLarge),
+                  const SizedBox(height: 6),
+                  Text(
+                    _scoreLabel(),
+                    style: TextStyle(
+                      color: scoreColor,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Eventos: $_harshEvents bruscos • $_overspeedEvents excesso de velocidade',
+                    style: const TextStyle(color: Colors.black54),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMapCard() {
     return Card(
       child: InkWell(
@@ -419,10 +597,10 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Localização', style: Theme.of(context).textTheme.titleLarge),
+              Text('Localização do veículo', style: Theme.of(context).textTheme.titleLarge),
               const SizedBox(height: 6),
               const Text(
-                'Simulação de posição do veículo até a integração com GPS.',
+                'Coordenadas simuladas até integração do ESP32 com GPS NEO-6M.',
                 style: TextStyle(color: Colors.black54),
               ),
               const SizedBox(height: 14),
@@ -438,7 +616,7 @@ class _HomePageState extends State<HomePage> {
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(22),
                         child: CustomPaint(
-                          painter: _MockMapPainter(),
+                          painter: _FleetMapPainter(),
                         ),
                       ),
                     ),
@@ -457,9 +635,9 @@ class _HomePageState extends State<HomePage> {
                           ],
                         ),
                         child: const Icon(
-                          Icons.directions_car_filled_rounded,
+                          Icons.local_shipping_rounded,
                           color: Colors.white,
-                          size: 32,
+                          size: 34,
                         ),
                       ),
                     ),
@@ -475,13 +653,13 @@ class _HomePageState extends State<HomePage> {
                         child: Row(
                           children: [
                             Icon(
-                              _trackingActive ? Icons.gps_fixed : Icons.gps_not_fixed,
-                              color: _trackingActive ? AppTheme.success : Colors.black45,
+                              _tripActive ? Icons.gps_fixed : Icons.gps_not_fixed,
+                              color: _tripActive ? AppTheme.success : Colors.black45,
                               size: 18,
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              _trackingActive ? 'Rastreando' : 'Parado',
+                              _tripActive ? 'Rastreando' : 'Aguardando',
                               style: const TextStyle(
                                 color: AppTheme.primaryDark,
                                 fontWeight: FontWeight.w600,
@@ -525,27 +703,37 @@ class _HomePageState extends State<HomePage> {
       crossAxisCount: 2,
       crossAxisSpacing: 12,
       mainAxisSpacing: 12,
-      childAspectRatio: 1.35,
+      childAspectRatio: 1.28,
       children: [
         _buildMetricCard(
           icon: Icons.speed_rounded,
-          title: 'Velocidade atual',
+          title: 'Velocidade',
           value: '${_currentSpeedKmh.toStringAsFixed(1)} km/h',
         ),
         _buildMetricCard(
           icon: Icons.timeline_rounded,
-          title: 'Velocidade média',
+          title: 'Média',
           value: '${_averageSpeedKmh.toStringAsFixed(1)} km/h',
         ),
         _buildMetricCard(
+          icon: Icons.trending_up_rounded,
+          title: 'Máxima',
+          value: '${_maxSpeedKmh.toStringAsFixed(1)} km/h',
+        ),
+        _buildMetricCard(
           icon: Icons.route_outlined,
-          title: 'Distância',
+          title: 'KM rodados',
           value: '${_distanceKm.toStringAsFixed(2)} km',
         ),
         _buildMetricCard(
-          icon: Icons.timer_outlined,
-          title: 'Atualização',
-          value: DateTime.now().toString().substring(11, 19),
+          icon: Icons.av_timer_rounded,
+          title: 'RPM',
+          value: _rpm == 0 ? '0 rpm' : '$_rpm rpm',
+        ),
+        _buildMetricCard(
+          icon: Icons.thermostat_rounded,
+          title: 'Motor',
+          value: '$_engineTemp °C',
         ),
       ],
     );
@@ -558,7 +746,7 @@ class _HomePageState extends State<HomePage> {
   }) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(15),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -573,7 +761,7 @@ class _HomePageState extends State<HomePage> {
                   value,
                   style: const TextStyle(
                     color: AppTheme.primaryDark,
-                    fontSize: 20,
+                    fontSize: 19,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -585,30 +773,35 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTrackingControls() {
+  Widget _buildTripControls() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Controle do rastreamento', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 12),
+            Text('Controle da viagem', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 8),
+            const Text(
+              'Modo simulado até a conexão real com ELM327 e GPS.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 14),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _trackingActive ? _stopTrackingSimulation : _startTrackingSimulation,
-                icon: Icon(_trackingActive ? Icons.pause : Icons.play_arrow),
-                label: Text(_trackingActive ? 'Parar simulação' : 'Iniciar simulação'),
+                onPressed: _tripActive ? _pauseTripSimulation : _startTripSimulation,
+                icon: Icon(_tripActive ? Icons.pause : Icons.play_arrow),
+                label: Text(_tripActive ? 'Pausar viagem' : 'Iniciar viagem simulada'),
               ),
             ),
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: _resetTrackingSimulation,
+                onPressed: _resetTripSimulation,
                 icon: const Icon(Icons.restart_alt),
-                label: const Text('Resetar dados'),
+                label: const Text('Resetar telemetria'),
               ),
             ),
           ],
@@ -618,7 +811,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildSpeedChart() {
-    final spots = _speedHistory.asMap().entries.map((entry) {
+    final spots = _telemetryHistory.asMap().entries.map((entry) {
       return FlSpot(entry.key.toDouble(), entry.value.speedKmh);
     }).toList();
 
@@ -636,7 +829,7 @@ class _HomePageState extends State<HomePage> {
             Text('Gráfico de velocidade', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 6),
             const Text(
-              'Variação da velocidade durante o rastreamento simulado.',
+              'Variação da velocidade coletada da telemetria OBD-II.',
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 20),
@@ -702,24 +895,34 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTrackerInfoCard() {
+  Widget _buildFleetInfoCard() {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Rastreador', style: Theme.of(context).textTheme.titleLarge),
+            Text('Integrações da frota', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 12),
             _buildInfoLine(
+              icon: Icons.bluetooth,
+              label: 'OBD-II',
+              value: 'ELM327 simulado',
+            ),
+            _buildInfoLine(
               icon: Icons.memory,
-              label: 'Dispositivo',
-              value: 'ESP32 preparado',
+              label: 'ESP32',
+              value: 'Gateway GPS',
             ),
             _buildInfoLine(
               icon: Icons.gps_fixed,
               label: 'GPS',
-              value: 'Simulado até módulo físico',
+              value: 'NEO-6M planejado',
+            ),
+            _buildInfoLine(
+              icon: Icons.local_gas_station,
+              label: 'Combustível',
+              value: '$_fuelPercent%',
             ),
             _buildInfoLine(
               icon: Icons.storage_outlined,
@@ -757,48 +960,9 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
-
-  Widget _buildVehicleSettingsCard() {
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(24),
-        onTap: _openVehicleProfile,
-        child: const Padding(
-          padding: EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Icon(Icons.directions_car_filled_rounded, color: AppTheme.primary),
-              SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Detalhes do veículo',
-                      style: TextStyle(
-                        color: AppTheme.primaryDark,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      'Apelido, placa, modelo e imagem',
-                      style: TextStyle(color: Colors.black54),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: Colors.black45),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-class _MockMapPainter extends CustomPainter {
+class _FleetMapPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final backgroundPaint = Paint()
