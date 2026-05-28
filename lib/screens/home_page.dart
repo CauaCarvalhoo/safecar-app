@@ -1,12 +1,13 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../models/vehicle_status.dart';
-import '../services/safecar_service.dart';
 import '../theme/app_theme.dart';
 
 class HomePage extends StatefulWidget {
@@ -16,128 +17,75 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
-  final SafeCarService _service = SafeCarService();
-  final TextEditingController _ipController = TextEditingController(text: '192.168.4.1');
+class _TrackingPoint {
+  final DateTime time;
+  final double speedKmh;
 
-  VehicleStatus _status = VehicleStatus.initial();
-  final List<AlertEvent> _history = [];
+  const _TrackingPoint({
+    required this.time,
+    required this.speedKmh,
+  });
+}
+
+class _HomePageState extends State<HomePage> {
+  final Random _random = Random();
 
   Map<String, dynamic>? _vehicleData;
 
-  Timer? _timer;
-  bool _loading = false;
-  bool _loadingHistory = false;
+  Timer? _trackingTimer;
+
   bool _loadingVehicle = false;
-  String? _errorMessage;
+  bool _trackingActive = false;
+
+  double _latitude = -22.7371;
+  double _longitude = -47.3331;
+  double _currentSpeedKmh = 0;
+  double _averageSpeedKmh = 0;
+  double _distanceKm = 0;
+
+  final List<_TrackingPoint> _speedHistory = [];
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
+
+
+  String get _vehicleNickname {
+    return _vehicleData?['nickname']?.toString() ?? 'Veículo não cadastrado';
+  }
+
+  String get _vehicleDetails {
+    final brand = _vehicleData?['brand']?.toString() ?? '';
+    final model = _vehicleData?['model']?.toString() ?? '';
+    final year = _vehicleData?['year']?.toString() ?? '';
+    final plate = _vehicleData?['plate']?.toString() ?? '';
+
+    final parts = [
+      if (brand.isNotEmpty || model.isNotEmpty) '$brand $model'.trim(),
+      if (year.isNotEmpty) year,
+      if (plate.isNotEmpty) 'Placa: $plate',
+    ];
+
+    if (parts.isEmpty) {
+      return 'Toque para cadastrar modelo, placa e imagem.';
+    }
+
+    return parts.join(' • ');
+  }
+
+  String get _statusText {
+    return _trackingActive ? 'Em movimento' : 'Estacionado';
+  }
 
   @override
   void initState() {
     super.initState();
     _loadVehicleDataFromFirestore();
-    _loadAlertHistoryFromFirestore();
-    _refreshStatus();
-    _timer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => _refreshStatus(silent: true),
-    );
+    _addSpeedPoint(0);
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
-    _ipController.dispose();
+    _trackingTimer?.cancel();
     super.dispose();
-  }
-
-  Future<void> _refreshStatus({bool silent = false}) async {
-    if (!mounted) return;
-
-    if (!silent) {
-      setState(() => _loading = true);
-    }
-
-    try {
-      final status = await _service.fetchStatus();
-
-      if (!mounted) return;
-
-      setState(() {
-        _status = status;
-        _errorMessage = null;
-        _loading = false;
-        _registerAlerts(status.activeAlerts);
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _status = _status.copyWith(
-          connected: false,
-          source: 'Sem conexão com ESP32',
-          updatedAt: DateTime.now(),
-        );
-        _errorMessage = 'Não foi possível falar com o ESP32. Confira o Wi-Fi e o IP.';
-        _loading = false;
-      });
-    }
-  }
-
-  Future<void> _sendCommand(String command, String successMessage) async {
-    setState(() => _loading = true);
-
-    try {
-      final status = await _service.sendCommand(command);
-
-      if (!mounted) return;
-
-      setState(() {
-        _status = status;
-        _errorMessage = null;
-        _loading = false;
-        _registerAlerts(status.activeAlerts);
-      });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(successMessage)),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _errorMessage = 'Comando não enviado. Confira se o ESP32 está ligado e conectado.';
-        _loading = false;
-      });
-    }
-  }
-
-  void _registerAlerts(List<AlertEvent> alerts) {
-    final now = DateTime.now();
-    final newAlerts = <AlertEvent>[];
-
-    for (final alert in alerts) {
-      final alreadyInserted = _history.any(
-        (item) =>
-            item.title == alert.title &&
-            item.message == alert.message &&
-            now.difference(item.time).inSeconds < 30,
-      );
-
-      if (!alreadyInserted) {
-        _history.insert(0, alert);
-        newAlerts.add(alert);
-      }
-    }
-
-    if (_history.length > 20) {
-      _history.removeRange(20, _history.length);
-    }
-
-    for (final alert in newAlerts) {
-      unawaited(_saveAlertToFirestore(alert));
-    }
   }
 
   Future<void> _loadVehicleDataFromFirestore() async {
@@ -170,8 +118,13 @@ class _HomePageState extends State<HomePage> {
 
       setState(() {
         _loadingVehicle = false;
-        _errorMessage = 'Não foi possível carregar os dados do veículo.';
       });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível carregar os dados do veículo.'),
+        ),
+      );
     }
   }
 
@@ -183,167 +136,110 @@ class _HomePageState extends State<HomePage> {
     await _loadVehicleDataFromFirestore();
   }
 
-  Future<void> _loadAlertHistoryFromFirestore() async {
-    final user = _currentUser;
-
-    if (user == null) {
-      return;
-    }
+  void _startTrackingSimulation() {
+    _trackingTimer?.cancel();
 
     setState(() {
-      _loadingHistory = true;
+      _trackingActive = true;
     });
 
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('alerts')
-          .orderBy('createdAt', descending: true)
-          .limit(20)
-          .get();
+    _simulateTrackingTick();
 
-      final alerts = snapshot.docs.map((doc) {
-        final data = doc.data();
-        final timestamp = data['createdAt'];
-
-        DateTime alertTime = DateTime.now();
-
-        if (timestamp is Timestamp) {
-          alertTime = timestamp.toDate();
-        }
-
-        return AlertEvent(
-          title: data['title']?.toString() ?? 'Alerta SafeCar',
-          message: data['message']?.toString() ?? 'Evento registrado no sistema.',
-          time: alertTime,
-          severity: _severityFromString(data['severity']?.toString() ?? 'warning'),
-        );
-      }).toList();
-
-      if (!mounted) return;
-
-      setState(() {
-        _history
-          ..clear()
-          ..addAll(alerts);
-        _loadingHistory = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _loadingHistory = false;
-        _errorMessage = 'Não foi possível carregar o histórico do Firebase.';
-      });
-    }
+    _trackingTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _simulateTrackingTick(),
+    );
   }
 
-  Future<void> _saveAlertToFirestore(AlertEvent alert) async {
-    final user = _currentUser;
-
-    if (user == null) {
-      return;
-    }
-
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('alerts').add({
-        'title': alert.title,
-        'message': alert.message,
-        'severity': _severityToString(alert.severity),
-        'source': _status.source,
-        'createdAt': Timestamp.fromDate(alert.time),
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      setState(() {
-        _errorMessage = 'Alerta exibido localmente, mas não foi salvo no Firebase.';
-      });
-    }
-  }
-
-  Future<void> _clearHistory() async {
-    final user = _currentUser;
+  void _stopTrackingSimulation() {
+    _trackingTimer?.cancel();
 
     setState(() {
-      _history.clear();
+      _trackingActive = false;
+      _currentSpeedKmh = 0;
+      _addSpeedPoint(0);
+      _calculateAverageSpeed();
     });
-
-    if (user == null) {
-      return;
-    }
-
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('alerts')
-          .limit(50)
-          .get();
-
-      final batch = FirebaseFirestore.instance.batch();
-
-      for (final doc in snapshot.docs) {
-        batch.delete(doc.reference);
-      }
-
-      await batch.commit();
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Histórico de alertas limpo.')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Histórico local limpo, mas houve falha ao limpar o Firebase.')),
-      );
-    }
   }
 
-  AlertSeverity _severityFromString(String severity) {
-    switch (severity) {
-      case 'danger':
-        return AlertSeverity.danger;
-      case 'info':
-        return AlertSeverity.info;
-      case 'warning':
-      default:
-        return AlertSeverity.warning;
-    }
+  void _resetTrackingSimulation() {
+    _trackingTimer?.cancel();
+
+    setState(() {
+      _trackingActive = false;
+      _latitude = -22.7371;
+      _longitude = -47.3331;
+      _currentSpeedKmh = 0;
+      _averageSpeedKmh = 0;
+      _distanceKm = 0;
+      _speedHistory.clear();
+      _addSpeedPoint(0);
+    });
   }
 
-  String _severityToString(AlertSeverity severity) {
-    switch (severity) {
-      case AlertSeverity.danger:
-        return 'danger';
-      case AlertSeverity.info:
-        return 'info';
-      case AlertSeverity.warning:
-        return 'warning';
-    }
+  void _simulateTrackingTick() {
+    final variation = _random.nextDouble() * 16 - 8;
+    final nextSpeed = (38 + variation + _random.nextInt(34)).clamp(8.0, 92.0);
+
+    const intervalSeconds = 2;
+    final distanceIncrement = nextSpeed * intervalSeconds / 3600;
+
+    final latitudeIncrement = (_random.nextDouble() - 0.5) * 0.00018;
+    final longitudeIncrement = distanceIncrement * 0.010;
+
+    setState(() {
+      _currentSpeedKmh = nextSpeed;
+      _distanceKm += distanceIncrement;
+      _latitude += latitudeIncrement;
+      _longitude += longitudeIncrement;
+      _addSpeedPoint(nextSpeed);
+      _calculateAverageSpeed();
+    });
   }
 
-  void _applyEsp32Config() {
-    final ip = _ipController.text.trim();
-
-    if (ip.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Informe o IP do ESP32.')),
-      );
-      return;
-    }
-
-    _service.esp32BaseUrl = ip.startsWith('http') ? ip : 'http://$ip';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('ESP32 configurado em ${_service.esp32BaseUrl}')),
+  void _addSpeedPoint(double speed) {
+    _speedHistory.add(
+      _TrackingPoint(
+        time: DateTime.now(),
+        speedKmh: speed,
+      ),
     );
 
-    _refreshStatus();
+    if (_speedHistory.length > 20) {
+      _speedHistory.removeAt(0);
+    }
+  }
+
+  void _calculateAverageSpeed() {
+    final movingSpeeds = _speedHistory
+        .where((point) => point.speedKmh > 0)
+        .map((point) => point.speedKmh)
+        .toList();
+
+    if (movingSpeeds.isEmpty) {
+      _averageSpeedKmh = 0;
+      return;
+    }
+
+    final total = movingSpeeds.reduce((a, b) => a + b);
+    _averageSpeedKmh = total / movingSpeeds.length;
+  }
+
+  Future<void> _copyLocation() async {
+    final locationText =
+        '${_latitude.toStringAsFixed(6)}, ${_longitude.toStringAsFixed(6)}';
+
+    await Clipboard.setData(
+      ClipboardData(text: locationText),
+    );
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Localização copiada: $locationText'),
+      ),
+    );
   }
 
   Future<void> _logout() async {
@@ -360,26 +256,15 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final userName = _currentUser?.displayName;
-    final userEmail = _currentUser?.email;
-
     return Scaffold(
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: const Text('SafeCar'),
+        title: const Text('SafeCar Tracker'),
         actions: [
           IconButton(
-            tooltip: 'Atualizar',
-            icon: _loading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  )
-                : const Icon(Icons.refresh),
-            onPressed: _loading ? null : () => _refreshStatus(),
+            tooltip: 'Atualizar veículo',
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadVehicleDataFromFirestore,
           ),
           IconButton(
             tooltip: 'Sair',
@@ -389,89 +274,31 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: () async {
-          await _refreshStatus();
-          await _loadVehicleDataFromFirestore();
-          await _loadAlertHistoryFromFirestore();
-        },
+        onRefresh: _loadVehicleDataFromFirestore,
         child: ListView(
           padding: const EdgeInsets.all(18),
           children: [
-            if (userName != null || userEmail != null) ...[
-              _buildUserCard(userName, userEmail),
-              const SizedBox(height: 16),
-            ],
-            _buildVehicleCard(),
+            _buildVehicleHeroCard(),
             const SizedBox(height: 16),
-            _buildHeaderCard(),
+            _buildMapCard(),
             const SizedBox(height: 16),
-            _buildConfigCard(),
+            _buildMetricGrid(),
             const SizedBox(height: 16),
-            _buildStatusGrid(),
+            _buildTrackingControls(),
             const SizedBox(height: 16),
-            _buildActionPanel(),
+            _buildSpeedChart(),
             const SizedBox(height: 16),
-            _buildAlertHistory(),
+            _buildTrackerInfoCard(),
+            const SizedBox(height: 16),
+            _buildVehicleSettingsCard(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildUserCard(String? userName, String? userEmail) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            const CircleAvatar(
-              backgroundColor: AppTheme.primary,
-              foregroundColor: Colors.white,
-              child: Icon(Icons.person_outline),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    userName ?? 'Usuário SafeCar',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    userEmail ?? 'Conta conectada ao Firebase',
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleCard() {
-    final vehicle = _vehicleData;
-
-    final nickname = vehicle?['nickname']?.toString() ?? 'Cadastrar veículo';
-    final brand = vehicle?['brand']?.toString() ?? '';
-    final model = vehicle?['model']?.toString() ?? '';
-    final year = vehicle?['year']?.toString() ?? '';
-    final plate = vehicle?['plate']?.toString() ?? '';
-    final color = vehicle?['color']?.toString() ?? '';
-    final imageBase64 = vehicle?['imageBase64']?.toString() ?? '';
-
-    final hasVehicle = vehicle != null;
-    final subtitle = hasVehicle
-        ? [
-            if (brand.isNotEmpty || model.isNotEmpty) '$brand $model'.trim(),
-            if (year.isNotEmpty) year,
-            if (plate.isNotEmpty) 'Placa: $plate',
-            if (color.isNotEmpty) 'Cor: $color',
-          ].join(' • ')
-        : 'Toque aqui para cadastrar os dados do veículo monitorado.';
+  Widget _buildVehicleHeroCard() {
+    final imageBase64 = _vehicleData?['imageBase64']?.toString() ?? '';
 
     return Card(
       child: InkWell(
@@ -479,46 +306,56 @@ class _HomePageState extends State<HomePage> {
         onTap: _openVehicleProfile,
         child: Padding(
           padding: const EdgeInsets.all(18),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildVehicleImage(imageBase64),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Veículo monitorado',
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 6),
-                    if (_loadingVehicle)
-                      const Text(
-                        'Carregando dados do veículo...',
-                        style: TextStyle(color: Colors.black54),
-                      )
-                    else ...[
-                      Text(
-                        nickname,
-                        style: const TextStyle(
-                          color: AppTheme.primaryDark,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 16,
+              Row(
+                children: [
+                  _buildVehicleImage(imageBase64),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(_vehicleNickname, style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 4),
+                        Text(
+                          _loadingVehicle ? 'Carregando veículo...' : _vehicleDetails,
+                          style: const TextStyle(color: Colors.black54),
                         ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.black45),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: _trackingActive
+                      ? AppTheme.primary.withValues(alpha: 0.10)
+                      : Colors.black.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _trackingActive ? Icons.directions_car : Icons.local_parking,
+                      color: _trackingActive ? AppTheme.primary : Colors.black54,
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      _statusText,
+                      style: TextStyle(
+                        color: _trackingActive ? AppTheme.primaryDark : Colors.black87,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(color: Colors.black54),
-                      ),
-                    ],
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right,
-                color: Colors.black45,
               ),
             ],
           ),
@@ -530,16 +367,16 @@ class _HomePageState extends State<HomePage> {
   Widget _buildVehicleImage(String imageBase64) {
     if (imageBase64.isEmpty) {
       return Container(
-        width: 76,
-        height: 76,
+        width: 86,
+        height: 86,
         decoration: BoxDecoration(
           color: AppTheme.primary.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: const Icon(
           Icons.directions_car_filled_rounded,
           color: AppTheme.primary,
-          size: 40,
+          size: 44,
         ),
       );
     }
@@ -548,420 +385,483 @@ class _HomePageState extends State<HomePage> {
       final imageBytes = base64Decode(imageBase64);
 
       return ClipRRect(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(22),
         child: Image.memory(
           imageBytes,
-          width: 76,
-          height: 76,
+          width: 86,
+          height: 86,
           fit: BoxFit.cover,
         ),
       );
     } catch (error) {
       return Container(
-        width: 76,
-        height: 76,
+        width: 86,
+        height: 86,
         decoration: BoxDecoration(
           color: AppTheme.warning.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(22),
         ),
         child: const Icon(
           Icons.broken_image_outlined,
           color: AppTheme.warning,
-          size: 34,
         ),
       );
     }
   }
 
-  Widget _buildHeaderCard() {
-    final hasAlerts = _status.activeAlerts.isNotEmpty;
-    final statusText = hasAlerts ? 'Atenção necessária' : 'Monitoramento ativo';
-    final statusIcon = hasAlerts ? Icons.warning_amber_rounded : Icons.shield_outlined;
-    final statusColor = hasAlerts ? AppTheme.warning : AppTheme.primary;
-
+  Widget _buildMapCard() {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: statusColor.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: _copyLocation,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Localização', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 6),
+              const Text(
+                'Simulação de posição do veículo até a integração com GPS.',
+                style: TextStyle(color: Colors.black54),
               ),
-              child: Icon(statusIcon, color: statusColor, size: 34),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    statusText,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    _status.connected
-                        ? '${_status.source} • atualizado às ${_formatTime(_status.updatedAt)}'
-                        : _status.source,
-                    style: const TextStyle(color: Colors.black54),
-                  ),
-                  if (_errorMessage != null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _errorMessage!,
-                      style: const TextStyle(color: AppTheme.danger),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildConfigCard() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Conexão do protótipo',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Modo simulação'),
-              subtitle: Text(
-                _service.simulationMode
-                    ? 'Use enquanto ainda não tiver todos os sensores.'
-                    : 'O app tentará ler dados reais do ESP32.',
-              ),
-              value: _service.simulationMode,
-              activeColor: AppTheme.primary,
-              onChanged: (value) {
-                setState(() {
-                  _service.simulationMode = value;
-                });
-                _refreshStatus();
-              },
-            ),
-            if (!_service.simulationMode) ...[
-              const SizedBox(height: 10),
-              TextField(
-                controller: _ipController,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(
-                  labelText: 'IP do ESP32',
-                  hintText: '192.168.4.1',
-                  prefixIcon: Icon(Icons.wifi),
+              const SizedBox(height: 14),
+              Container(
+                height: 220,
+                decoration: BoxDecoration(
+                  color: AppTheme.primaryDark,
+                  borderRadius: BorderRadius.circular(22),
                 ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _applyEsp32Config,
-                  icon: const Icon(Icons.settings_ethernet),
-                  label: const Text('Conectar ao ESP32'),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatusGrid() {
-    final items = [
-      _StatusItem(
-        'Portas',
-        _status.doorsLocked ? 'Trancadas' : 'Abertas',
-        Icons.lock,
-        _status.doorsLocked,
-      ),
-      _StatusItem(
-        'Faróis',
-        _status.headlightsOn ? 'Acesos' : 'Apagados',
-        Icons.lightbulb_outline,
-        !_status.headlightsOn,
-      ),
-      _StatusItem(
-        'Vidros',
-        _status.windowsClosed ? 'Fechados' : 'Abertos',
-        Icons.window,
-        _status.windowsClosed,
-      ),
-      _StatusItem(
-        'Alarme',
-        _status.alarmActive ? 'Ativo' : 'Inativo',
-        Icons.notifications_active_outlined,
-        _status.alarmActive,
-      ),
-      _StatusItem(
-        'Impacto',
-        _status.vibrationDetected ? 'Detectado' : 'Normal',
-        Icons.vibration,
-        !_status.vibrationDetected,
-      ),
-      _StatusItem(
-        'Bateria',
-        '${_status.batteryVoltage.toStringAsFixed(1)} V',
-        Icons.battery_charging_full,
-        _status.batteryVoltage >= 11.8,
-      ),
-    ];
-
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        childAspectRatio: 1.35,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-      ),
-      itemBuilder: (context, index) {
-        final item = items[index];
-        final color = item.ok ? AppTheme.primary : AppTheme.warning;
-
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                child: Stack(
                   children: [
-                    Icon(item.icon, color: color),
-                    Icon(
-                      item.ok ? Icons.check_circle : Icons.error,
-                      color: color,
-                      size: 20,
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      item.value,
-                      style: TextStyle(
-                        color: color,
-                        fontWeight: FontWeight.bold,
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: CustomPaint(
+                          painter: _MockMapPainter(),
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildActionPanel() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Ações rápidas',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 12),
-            _ActionButton(
-              icon: _status.doorsLocked ? Icons.lock_open : Icons.lock,
-              label: _status.doorsLocked ? 'Destrancar portas' : 'Trancar portas',
-              onPressed: () => _sendCommand(
-                _status.doorsLocked ? 'unlock_doors' : 'lock_doors',
-                _status.doorsLocked ? 'Comando: destrancar portas' : 'Comando: trancar portas',
-              ),
-            ),
-            _ActionButton(
-              icon: Icons.notifications_active,
-              label: _status.alarmActive ? 'Desativar alarme' : 'Ativar alarme',
-              onPressed: () => _sendCommand(
-                'toggle_alarm',
-                'Comando do alarme enviado',
-              ),
-            ),
-            _ActionButton(
-              icon: Icons.lightbulb_outline,
-              label: _status.headlightsOn ? 'Apagar faróis' : 'Simular faróis acesos',
-              onPressed: () => _sendCommand(
-                _status.headlightsOn ? 'turn_off_lights' : 'toggle_lights',
-                'Estado dos faróis atualizado',
-              ),
-            ),
-            _ActionButton(
-              icon: Icons.window,
-              label: _status.windowsClosed ? 'Simular vidro aberto' : 'Fechar vidros',
-              onPressed: () => _sendCommand(
-                _status.windowsClosed ? 'toggle_windows' : 'close_windows',
-                'Estado dos vidros atualizado',
-              ),
-            ),
-            _ActionButton(
-              icon: Icons.car_crash_outlined,
-              label: 'Simular impacto suspeito',
-              onPressed: () => _sendCommand(
-                'simulate_impact',
-                'Impacto simulado',
-              ),
-            ),
-            _ActionButton(
-              icon: Icons.cleaning_services_outlined,
-              label: 'Limpar eventos de impacto',
-              onPressed: () => _sendCommand(
-                'clear_events',
-                'Eventos de impacto limpos',
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAlertHistory() {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Text(
-                    _loadingHistory ? 'Carregando histórico...' : 'Histórico de alertas',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                TextButton(
-                  onPressed: _history.isEmpty ? null : () => _clearHistory(),
-                  child: const Text('Limpar'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_history.isEmpty)
-              const Text(
-                'Nenhum alerta registrado até agora.',
-                style: TextStyle(color: Colors.black54),
-              )
-            else
-              ..._history.map((alert) {
-                final color = alert.severity == AlertSeverity.danger
-                    ? AppTheme.danger
-                    : alert.severity == AlertSeverity.info
-                        ? AppTheme.primary
-                        : AppTheme.warning;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.warning_amber_rounded, color: color),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    Center(
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.22),
+                              blurRadius: 12,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.directions_car_filled_rounded,
+                          color: Colors.white,
+                          size: 32,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 16,
+                      top: 16,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.92),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: Row(
                           children: [
-                            Text(
-                              alert.title,
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                            Icon(
+                              _trackingActive ? Icons.gps_fixed : Icons.gps_not_fixed,
+                              color: _trackingActive ? AppTheme.success : Colors.black45,
+                              size: 18,
                             ),
-                            const SizedBox(height: 2),
+                            const SizedBox(width: 6),
                             Text(
-                              alert.message,
-                              style: const TextStyle(color: Colors.black87),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _formatTime(alert.time),
+                              _trackingActive ? 'Rastreando' : 'Parado',
                               style: const TextStyle(
-                                color: Colors.black45,
-                                fontSize: 12,
+                                color: AppTheme.primaryDark,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const Icon(Icons.location_on_outlined, color: AppTheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${_latitude.toStringAsFixed(6)}, ${_longitude.toStringAsFixed(6)}',
+                      style: const TextStyle(
+                        color: AppTheme.primaryDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ),
-                );
-              }),
+                  const Icon(Icons.copy, color: Colors.black45, size: 20),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMetricGrid() {
+    return GridView.count(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      crossAxisCount: 2,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 1.35,
+      children: [
+        _buildMetricCard(
+          icon: Icons.speed_rounded,
+          title: 'Velocidade atual',
+          value: '${_currentSpeedKmh.toStringAsFixed(1)} km/h',
+        ),
+        _buildMetricCard(
+          icon: Icons.timeline_rounded,
+          title: 'Velocidade média',
+          value: '${_averageSpeedKmh.toStringAsFixed(1)} km/h',
+        ),
+        _buildMetricCard(
+          icon: Icons.route_outlined,
+          title: 'Distância',
+          value: '${_distanceKm.toStringAsFixed(2)} km',
+        ),
+        _buildMetricCard(
+          icon: Icons.timer_outlined,
+          title: 'Atualização',
+          value: DateTime.now().toString().substring(11, 19),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMetricCard({
+    required IconData icon,
+    required String title,
+    required String value,
+  }) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Icon(icon, color: AppTheme.primary),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: const TextStyle(color: Colors.black54)),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: AppTheme.primaryDark,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 
-  String _formatTime(DateTime date) {
-    final hour = date.hour.toString().padLeft(2, '0');
-    final minute = date.minute.toString().padLeft(2, '0');
-    final second = date.second.toString().padLeft(2, '0');
-
-    return '$hour:$minute:$second';
-  }
-}
-
-class _StatusItem {
-  final String title;
-  final String value;
-  final IconData icon;
-  final bool ok;
-
-  const _StatusItem(this.title, this.value, this.icon, this.ok);
-}
-
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-
-  const _ActionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: onPressed,
-          icon: Icon(icon),
-          label: Text(label),
+  Widget _buildTrackingControls() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Controle do rastreamento', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _trackingActive ? _stopTrackingSimulation : _startTrackingSimulation,
+                icon: Icon(_trackingActive ? Icons.pause : Icons.play_arrow),
+                label: Text(_trackingActive ? 'Parar simulação' : 'Iniciar simulação'),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _resetTrackingSimulation,
+                icon: const Icon(Icons.restart_alt),
+                label: const Text('Resetar dados'),
+              ),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Widget _buildSpeedChart() {
+    final spots = _speedHistory.asMap().entries.map((entry) {
+      return FlSpot(entry.key.toDouble(), entry.value.speedKmh);
+    }).toList();
+
+    final chartSpots = spots.isEmpty ? [const FlSpot(0, 0)] : spots;
+
+    final maxSpeed = chartSpots.map((spot) => spot.y).reduce(max);
+    final maxY = max(80.0, maxSpeed + 20);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Gráfico de velocidade', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 6),
+            const Text(
+              'Variação da velocidade durante o rastreamento simulado.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              height: 220,
+              child: LineChart(
+                LineChartData(
+                  minY: 0,
+                  maxY: maxY,
+                  minX: 0,
+                  maxX: max(10, chartSpots.length - 1).toDouble(),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: Colors.black.withValues(alpha: 0.06),
+                        strokeWidth: 1,
+                      );
+                    },
+                  ),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                        interval: 20,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            value.toInt().toString(),
+                            style: const TextStyle(
+                              color: Colors.black45,
+                              fontSize: 11,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: chartSpots,
+                      isCurved: true,
+                      barWidth: 4,
+                      color: AppTheme.primary,
+                      dotData: const FlDotData(show: false),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: AppTheme.primary.withValues(alpha: 0.16),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrackerInfoCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Rastreador', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            _buildInfoLine(
+              icon: Icons.memory,
+              label: 'Dispositivo',
+              value: 'ESP32 preparado',
+            ),
+            _buildInfoLine(
+              icon: Icons.gps_fixed,
+              label: 'GPS',
+              value: 'Simulado até módulo físico',
+            ),
+            _buildInfoLine(
+              icon: Icons.storage_outlined,
+              label: 'Banco',
+              value: 'Firebase conectado',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoLine({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: AppTheme.primary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(label, style: const TextStyle(color: Colors.black54)),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: AppTheme.primaryDark,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleSettingsCard() {
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: _openVehicleProfile,
+        child: const Padding(
+          padding: EdgeInsets.all(18),
+          child: Row(
+            children: [
+              Icon(Icons.directions_car_filled_rounded, color: AppTheme.primary),
+              SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Detalhes do veículo',
+                      style: TextStyle(
+                        color: AppTheme.primaryDark,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Apelido, placa, modelo e imagem',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.black45),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MockMapPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final backgroundPaint = Paint()
+      ..shader = const LinearGradient(
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+        colors: [
+          Color(0xFF244B44),
+          Color(0xFF3A6A60),
+        ],
+      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+
+    canvas.drawRect(Offset.zero & size, backgroundPaint);
+
+    final roadPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.18)
+      ..strokeWidth = 14
+      ..strokeCap = StrokeCap.round;
+
+    final roadPaintThin = Paint()
+      ..color = Colors.white.withValues(alpha: 0.12)
+      ..strokeWidth = 8
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      Offset(size.width * 0.12, size.height * 0.20),
+      Offset(size.width * 0.88, size.height * 0.82),
+      roadPaint,
+    );
+
+    canvas.drawLine(
+      Offset(size.width * 0.05, size.height * 0.72),
+      Offset(size.width * 0.72, size.height * 0.18),
+      roadPaintThin,
+    );
+
+    canvas.drawLine(
+      Offset(size.width * 0.22, size.height * 0.92),
+      Offset(size.width * 0.95, size.height * 0.38),
+      roadPaintThin,
+    );
+
+    canvas.drawLine(
+      Offset(size.width * 0.00, size.height * 0.42),
+      Offset(size.width * 0.42, size.height * 0.08),
+      roadPaintThin,
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.50, size.height * 0.50),
+      18,
+      Paint()..color = Colors.white.withValues(alpha: 0.25),
+    );
+
+    canvas.drawCircle(
+      Offset(size.width * 0.50, size.height * 0.50),
+      9,
+      Paint()..color = Colors.white.withValues(alpha: 0.80),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) {
+    return false;
   }
 }
