@@ -995,11 +995,9 @@ class _HomePageState extends State<HomePage> {
         _savingTrip = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-        content: Text('Erro ao salvar viagem: $error'),
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao salvar viagem: $error')));
     }
   }
 
@@ -1045,13 +1043,13 @@ class _HomePageState extends State<HomePage> {
           children: [
             _buildVehicleHeroCard(),
             const SizedBox(height: 16),
+            _buildTripControls(),
+            const SizedBox(height: 16),
             _buildDriverScoreCard(),
             const SizedBox(height: 16),
             _buildMapCard(),
             const SizedBox(height: 16),
             _buildMetricGrid(),
-            const SizedBox(height: 16),
-            _buildTripControls(),
             const SizedBox(height: 16),
             _buildSpeedChart(),
             const SizedBox(height: 16),
@@ -1460,7 +1458,7 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Modo simulado até a conexão real com ELM327 e GPS.',
+              'Clique no botão abaixo para iniciar a viagem.',
               style: TextStyle(color: Colors.black54),
             ),
             const SizedBox(height: 14),
@@ -1471,7 +1469,7 @@ class _HomePageState extends State<HomePage> {
                     _tripActive ? _pauseTripSimulation : _startTripSimulation,
                 icon: Icon(_tripActive ? Icons.pause : Icons.play_arrow),
                 label: Text(
-                  _tripActive ? 'Pausar viagem' : 'Iniciar viagem simulada',
+                  _tripActive ? 'Pausar viagem' : 'Iniciar viagem',
                 ),
               ),
             ),
@@ -1504,28 +1502,28 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed:
-                    _gpsLoading
-                        ? null
-                        : _gpsEsp32Connected
-                        ? _disconnectGpsEsp32
-                        : _connectGpsEsp32,
-                icon: Icon(
-                  _gpsEsp32Connected ? Icons.gps_off : Icons.gps_fixed,
-                ),
-                label: Text(
-                  _gpsLoading
-                      ? 'Conectando GPS...'
-                      : _gpsEsp32Connected
-                      ? 'Desconectar GPS ESP32'
-                      : 'Conectar GPS ESP32',
-                ),
-              ),
-            ),
+            // const SizedBox(height: 10),
+            // SizedBox(
+            //   width: double.infinity,
+            //   child: OutlinedButton.icon(
+            //     onPressed:
+            //         _gpsLoading
+            //             ? null
+            //             : _gpsEsp32Connected
+            //             ? _disconnectGpsEsp32
+            //             : _connectGpsEsp32,
+            //     icon: Icon(
+            //       _gpsEsp32Connected ? Icons.gps_off : Icons.gps_fixed,
+            //     ),
+            //     label: Text(
+            //       _gpsLoading
+            //           ? 'Conectando GPS...'
+            //           : _gpsEsp32Connected
+            //           ? 'Desconectar GPS ESP32'
+            //           : 'Conectar GPS ESP32',
+            //     ),
+            //   ),
+            // ),
           ],
         ),
       ),
