@@ -12,6 +12,26 @@ import '../models/gps_location.dart';
 import '../services/gps_esp32_service.dart';
 import '../theme/app_theme.dart';
 
+enum _FleetAlertSeverity {
+  info,
+  warning,
+  danger,
+}
+
+class _FleetAlert {
+  final String title;
+  final String message;
+  final _FleetAlertSeverity severity;
+  final DateTime createdAt;
+
+  const _FleetAlert({
+    required this.title,
+    required this.message,
+    required this.severity,
+    required this.createdAt,
+  });
+}
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -32,15 +52,21 @@ class _TelemetryPoint {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const double _speedLimitKmh = 80;
+  static const double _allowedRadiusKm = 5;
+
   final Random _random = Random();
   final GpsEsp32Service _gpsService = GpsEsp32Service();
 
   Map<String, dynamic>? _vehicleData;
+  String _vehicleId = 'main';
+  bool _routeArgumentsLoaded = false;
 
   Timer? _tripTimer;
   Timer? _gpsTimer;
 
   bool _loadingVehicle = false;
+  bool _loadingFleetAlerts = false;
   bool _tripActive = false;
 
   bool _gpsLoading = false;
@@ -50,6 +76,12 @@ class _HomePageState extends State<HomePage> {
   String _gpsSource = 'GPS simulado';
 
   DateTime? _tripStartedAt;
+  double? _tripStartLatitude;
+  double? _tripStartLongitude;
+
+  DateTime? _lastOverspeedAlertAt;
+  DateTime? _lastHarshAlertAt;
+  DateTime? _lastGeofenceAlertAt;
 
   double _latitude = -22.7371;
   double _longitude = -47.3331;
@@ -67,6 +99,7 @@ class _HomePageState extends State<HomePage> {
   int _overspeedEvents = 0;
 
   final List<_TelemetryPoint> _telemetryHistory = [];
+  final List<_FleetAlert> _fleetAlerts = [];
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
@@ -110,8 +143,36 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
-    _loadVehicleDataFromFirestore();
+    _loadFleetAlertsFromFirestore();
     _addTelemetryPoint(speed: 0, rpm: 0);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_routeArgumentsLoaded) {
+      return;
+    }
+
+    _routeArgumentsLoaded = true;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+
+    if (args is Map) {
+      final receivedVehicleId = args['vehicleId']?.toString();
+      final receivedVehicleData = args['vehicleData'];
+
+      if (receivedVehicleId != null && receivedVehicleId.isNotEmpty) {
+        _vehicleId = receivedVehicleId;
+      }
+
+      if (receivedVehicleData is Map<String, dynamic>) {
+        _vehicleData = receivedVehicleData;
+      }
+    }
+
+    _loadVehicleDataFromFirestore();
   }
 
   @override
@@ -137,13 +198,13 @@ class _HomePageState extends State<HomePage> {
           .collection('users')
           .doc(user.uid)
           .collection('vehicles')
-          .doc('main')
+          .doc(_vehicleId)
           .get();
 
       if (!mounted) return;
 
       setState(() {
-        _vehicleData = doc.exists ? doc.data() : null;
+        _vehicleData = doc.exists ? doc.data() : _vehicleData;
         _loadingVehicle = false;
       });
     } catch (error) {
@@ -169,12 +230,180 @@ class _HomePageState extends State<HomePage> {
     await _loadVehicleDataFromFirestore();
   }
 
+  Future<void> _loadFleetAlertsFromFirestore() async {
+    final user = _currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    setState(() {
+      _loadingFleetAlerts = true;
+    });
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('fleetAlerts')
+          .orderBy('createdAt', descending: true)
+          .limit(20)
+          .get();
+
+      final alerts = snapshot.docs.map((doc) {
+        final data = doc.data();
+        final createdAt = data['createdAt'];
+
+        DateTime alertDate = DateTime.now();
+
+        if (createdAt is Timestamp) {
+          alertDate = createdAt.toDate();
+        }
+
+        return _FleetAlert(
+          title: data['title']?.toString() ?? 'Aviso SafeCar',
+          message: data['message']?.toString() ?? 'Evento registrado na frota.',
+          severity: _alertSeverityFromString(data['severity']?.toString()),
+          createdAt: alertDate,
+        );
+      }).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _fleetAlerts
+          ..clear()
+          ..addAll(alerts);
+        _loadingFleetAlerts = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _loadingFleetAlerts = false;
+      });
+    }
+  }
+
+  Future<void> _saveFleetAlertToFirestore(_FleetAlert alert) async {
+    final user = _currentUser;
+
+    if (user == null) {
+      return;
+    }
+
+    try {
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('fleetAlerts').add({
+        'vehicleId': _vehicleId,
+        'vehicleName': _vehicleNickname,
+        'title': alert.title,
+        'message': alert.message,
+        'severity': _alertSeverityToString(alert.severity),
+        'latitude': _latitude,
+        'longitude': _longitude,
+        'speedKmh': _currentSpeedKmh,
+        'createdAt': Timestamp.fromDate(alert.createdAt),
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aviso gerado localmente, mas não foi salvo no Firebase.'),
+        ),
+      );
+    }
+  }
+
+  void _registerFleetAlert({
+    required String title,
+    required String message,
+    required _FleetAlertSeverity severity,
+  }) {
+    final now = DateTime.now();
+
+    final alreadyInserted = _fleetAlerts.any(
+      (alert) =>
+          alert.title == title &&
+          alert.message == message &&
+          now.difference(alert.createdAt).inSeconds < 30,
+    );
+
+    if (alreadyInserted) {
+      return;
+    }
+
+    final alert = _FleetAlert(
+      title: title,
+      message: message,
+      severity: severity,
+      createdAt: now,
+    );
+
+    setState(() {
+      _fleetAlerts.insert(0, alert);
+
+      if (_fleetAlerts.length > 20) {
+        _fleetAlerts.removeRange(20, _fleetAlerts.length);
+      }
+    });
+
+    unawaited(_saveFleetAlertToFirestore(alert));
+  }
+
+  Future<void> _clearFleetAlerts() async {
+    final user = _currentUser;
+
+    setState(() {
+      _fleetAlerts.clear();
+    });
+
+    if (user == null) {
+      return;
+    }
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('fleetAlerts')
+          .limit(50)
+          .get();
+
+      final batch = FirebaseFirestore.instance.batch();
+
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      await batch.commit();
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Histórico de avisos limpo.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Histórico local limpo, mas houve falha ao limpar o Firebase.'),
+        ),
+      );
+    }
+  }
+
   void _startTripSimulation() {
     _tripTimer?.cancel();
 
     setState(() {
       _tripActive = true;
       _tripStartedAt ??= DateTime.now();
+      _tripStartLatitude ??= _latitude;
+      _tripStartLongitude ??= _longitude;
     });
 
     _simulateObdTick();
@@ -203,6 +432,8 @@ class _HomePageState extends State<HomePage> {
     setState(() {
       _tripActive = false;
       _tripStartedAt = null;
+      _tripStartLatitude = null;
+      _tripStartLongitude = null;
 
       if (!_gpsEsp32Connected || !_gpsValid) {
         _latitude = -22.7371;
@@ -220,6 +451,10 @@ class _HomePageState extends State<HomePage> {
       _driverScore = 100;
       _harshEvents = 0;
       _overspeedEvents = 0;
+
+      _lastOverspeedAlertAt = null;
+      _lastHarshAlertAt = null;
+      _lastGeofenceAlertAt = null;
 
       _telemetryHistory.clear();
       _addTelemetryPoint(speed: 0, rpm: 0);
@@ -262,7 +497,7 @@ class _HomePageState extends State<HomePage> {
         _maxSpeedKmh = nextSpeed;
       }
 
-      if (nextSpeed > 80) {
+      if (nextSpeed > _speedLimitKmh) {
         _overspeedEvents++;
       }
 
@@ -274,6 +509,104 @@ class _HomePageState extends State<HomePage> {
       _calculateTripStats();
       _calculateDriverScore();
     });
+
+    _evaluateFleetAlerts(
+      speedKmh: nextSpeed,
+      speedDifference: speedDifference,
+    );
+  }
+
+  void _evaluateFleetAlerts({
+    required double speedKmh,
+    required double speedDifference,
+  }) {
+    final now = DateTime.now();
+
+    if (speedKmh > _speedLimitKmh) {
+      final canAlert = _lastOverspeedAlertAt == null ||
+          now.difference(_lastOverspeedAlertAt!).inSeconds > 20;
+
+      if (canAlert) {
+        _lastOverspeedAlertAt = now;
+
+        _registerFleetAlert(
+          title: 'Excesso de velocidade',
+          message:
+              '$_vehicleNickname passou de ${_speedLimitKmh.toStringAsFixed(0)} km/h. Velocidade registrada: ${speedKmh.toStringAsFixed(1)} km/h.',
+          severity: _FleetAlertSeverity.danger,
+        );
+      }
+    }
+
+    if (speedDifference > 28) {
+      final canAlert = _lastHarshAlertAt == null ||
+          now.difference(_lastHarshAlertAt!).inSeconds > 20;
+
+      if (canAlert) {
+        _lastHarshAlertAt = now;
+
+        _registerFleetAlert(
+          title: 'Condução brusca',
+          message:
+              'Variação brusca de velocidade detectada no veículo $_vehicleNickname.',
+          severity: _FleetAlertSeverity.warning,
+        );
+      }
+    }
+
+    final startLat = _tripStartLatitude;
+    final startLng = _tripStartLongitude;
+
+    if (startLat != null && startLng != null) {
+      final distanceFromStart = _distanceBetweenKm(
+        startLat,
+        startLng,
+        _latitude,
+        _longitude,
+      );
+
+      if (distanceFromStart > _allowedRadiusKm) {
+        final canAlert = _lastGeofenceAlertAt == null ||
+            now.difference(_lastGeofenceAlertAt!).inSeconds > 30;
+
+        if (canAlert) {
+          _lastGeofenceAlertAt = now;
+
+          _registerFleetAlert(
+            title: 'Área não autorizada',
+            message:
+                '$_vehicleNickname saiu do raio permitido de ${_allowedRadiusKm.toStringAsFixed(0)} km.',
+            severity: _FleetAlertSeverity.danger,
+          );
+        }
+      }
+    }
+  }
+
+  double _distanceBetweenKm(
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
+  ) {
+    const earthRadiusKm = 6371.0;
+
+    final dLat = _degreesToRadians(lat2 - lat1);
+    final dLon = _degreesToRadians(lon2 - lon1);
+
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_degreesToRadians(lat1)) *
+            cos(_degreesToRadians(lat2)) *
+            sin(dLon / 2) *
+            sin(dLon / 2);
+
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+
+    return earthRadiusKm * c;
+  }
+
+  double _degreesToRadians(double degrees) {
+    return degrees * pi / 180;
   }
 
   void _addTelemetryPoint({
@@ -535,6 +868,40 @@ class _HomePageState extends State<HomePage> {
     return 'Coordenadas simuladas até integração do ESP32 com GPS NEO-6M. Toque para abrir no Google Maps.';
   }
 
+  _FleetAlertSeverity _alertSeverityFromString(String? value) {
+    switch (value) {
+      case 'danger':
+        return _FleetAlertSeverity.danger;
+      case 'info':
+        return _FleetAlertSeverity.info;
+      case 'warning':
+      default:
+        return _FleetAlertSeverity.warning;
+    }
+  }
+
+  String _alertSeverityToString(_FleetAlertSeverity severity) {
+    switch (severity) {
+      case _FleetAlertSeverity.danger:
+        return 'danger';
+      case _FleetAlertSeverity.info:
+        return 'info';
+      case _FleetAlertSeverity.warning:
+        return 'warning';
+    }
+  }
+
+  Color _alertColor(_FleetAlertSeverity severity) {
+    switch (severity) {
+      case _FleetAlertSeverity.danger:
+        return AppTheme.danger;
+      case _FleetAlertSeverity.info:
+        return AppTheme.primary;
+      case _FleetAlertSeverity.warning:
+        return AppTheme.warning;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -543,9 +910,17 @@ class _HomePageState extends State<HomePage> {
         title: const Text('SafeCar Fleet'),
         actions: [
           IconButton(
+            tooltip: 'Trocar veículo',
+            icon: const Icon(Icons.swap_horiz),
+            onPressed: () => Navigator.pop(context),
+          ),
+          IconButton(
             tooltip: 'Atualizar veículo',
             icon: const Icon(Icons.refresh),
-            onPressed: _loadVehicleDataFromFirestore,
+            onPressed: () async {
+              await _loadVehicleDataFromFirestore();
+              await _loadFleetAlertsFromFirestore();
+            },
           ),
           IconButton(
             tooltip: 'Sair',
@@ -555,7 +930,10 @@ class _HomePageState extends State<HomePage> {
         ],
       ),
       body: RefreshIndicator(
-        onRefresh: _loadVehicleDataFromFirestore,
+        onRefresh: () async {
+          await _loadVehicleDataFromFirestore();
+          await _loadFleetAlertsFromFirestore();
+        },
         child: ListView(
           padding: const EdgeInsets.all(18),
           children: [
@@ -570,6 +948,8 @@ class _HomePageState extends State<HomePage> {
             _buildTripControls(),
             const SizedBox(height: 16),
             _buildSpeedChart(),
+            const SizedBox(height: 16),
+            _buildFleetAlertsCard(),
             const SizedBox(height: 16),
             _buildFleetInfoCard(),
           ],
@@ -1087,6 +1467,95 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildFleetAlertsCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _loadingFleetAlerts ? 'Carregando avisos...' : 'Histórico de avisos',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                TextButton(
+                  onPressed: _fleetAlerts.isEmpty ? null : _clearFleetAlerts,
+                  child: const Text('Limpar'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Eventos de condução e localização da frota.',
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 14),
+            if (_fleetAlerts.isEmpty)
+              const Text(
+                'Nenhum aviso registrado até agora.',
+                style: TextStyle(color: Colors.black54),
+              )
+            else
+              ..._fleetAlerts.map((alert) {
+                final color = _alertColor(alert.severity);
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.warning_amber_rounded, color: color),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              alert.title,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              alert.message,
+                              style: const TextStyle(color: Colors.black87),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatDateTime(alert.createdAt),
+                              style: const TextStyle(
+                                color: Colors.black45,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    final second = date.second.toString().padLeft(2, '0');
+
+    return '$day/$month $hour:$minute:$second';
+  }
+
   Widget _buildFleetInfoCard() {
     return Card(
       child: Padding(
@@ -1119,6 +1588,16 @@ class _HomePageState extends State<HomePage> {
               icon: Icons.satellite_alt,
               label: 'Fonte GPS',
               value: _gpsSource,
+            ),
+            _buildInfoLine(
+              icon: Icons.speed,
+              label: 'Limite de alerta',
+              value: '${_speedLimitKmh.toStringAsFixed(0)} km/h',
+            ),
+            _buildInfoLine(
+              icon: Icons.location_searching,
+              label: 'Raio permitido',
+              value: '${_allowedRadiusKm.toStringAsFixed(0)} km',
             ),
             _buildInfoLine(
               icon: Icons.local_gas_station,

@@ -20,6 +20,18 @@ service cloud.firestore {
 
         allow update: if false;
       }
+
+      match /fleetAlerts/{alertId} {
+        allow read, create, delete: if request.auth != null
+                                    && request.auth.uid == userId;
+
+        allow update: if false;
+      }
+
+      match /trips/{tripId} {
+        allow read, create, update, delete: if request.auth != null
+                                            && request.auth.uid == userId;
+      }
     }
   }
 }

@@ -10,6 +10,7 @@ import 'screens/register_page.dart';
 import 'screens/splash_screen.dart';
 import 'screens/vehicle_profile_page.dart';
 import 'theme/app_theme.dart';
+import 'screens/vehicle_selection_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -62,7 +63,8 @@ class SafeCarApp extends StatelessWidget {
         '/login_user': (context) => const LoginPage(userType: 'usuario'),
         '/login_assistant': (context) => const LoginPage(userType: 'assistente'),
         '/register': (context) => const RegisterPage(),
-        '/home': (context) => const HomePage(),
+        '/home': (context) => const VehicleSelectionPage(),
+        '/fleet_dashboard': (context) => const HomePage(),
         '/vehicle_profile': (context) => const VehicleProfilePage(),
       },
     );
