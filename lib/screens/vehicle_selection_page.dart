@@ -35,10 +35,7 @@ class VehicleSelectionPage extends StatelessWidget {
     await Navigator.pushNamed(
       context,
       '/vehicle_profile',
-      arguments: {
-        'vehicleId': vehicleId,
-        'vehicleData': vehicleData,
-      },
+      arguments: {'vehicleId': vehicleId, 'vehicleData': vehicleData},
     );
   }
 
@@ -50,10 +47,7 @@ class VehicleSelectionPage extends StatelessWidget {
     Navigator.pushNamed(
       context,
       '/fleet_dashboard',
-      arguments: {
-        'vehicleId': vehicleId,
-        'vehicleData': vehicleData,
-      },
+      arguments: {'vehicleId': vehicleId, 'vehicleData': vehicleData},
     );
   }
 
@@ -76,6 +70,11 @@ class VehicleSelectionPage extends StatelessWidget {
             icon: const Icon(Icons.logout),
             onPressed: () => _logout(context),
           ),
+          IconButton(
+            tooltip: 'Histórico de viagens',
+            icon: const Icon(Icons.route_outlined),
+            onPressed: () => Navigator.pushNamed(context, '/trip_history'),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -83,68 +82,66 @@ class VehicleSelectionPage extends StatelessWidget {
         icon: const Icon(Icons.add),
         label: const Text('Novo veículo'),
       ),
-      body: user == null
-          ? const Center(
-              child: Text('Usuário não autenticado.'),
-            )
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(user.uid)
-                  .collection('vehicles')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        'Não foi possível carregar os veículos da frota.',
-                        textAlign: TextAlign.center,
+      body:
+          user == null
+              ? const Center(child: Text('Usuário não autenticado.'))
+              : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream:
+                    FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user.uid)
+                        .collection('vehicles')
+                        .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'Não foi possível carregar os veículos da frota.',
+                          textAlign: TextAlign.center,
+                        ),
                       ),
+                    );
+                  }
+
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final vehicles = snapshot.data?.docs ?? [];
+
+                  vehicles.sort((a, b) {
+                    final aName = a.data()['nickname']?.toString() ?? '';
+                    final bName = b.data()['nickname']?.toString() ?? '';
+                    return aName.compareTo(bName);
+                  });
+
+                  return RefreshIndicator(
+                    onRefresh: () async {},
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 90),
+                      children: [
+                        _buildHeaderCard(context, vehicles.length),
+                        const SizedBox(height: 16),
+                        if (vehicles.isEmpty)
+                          _buildEmptyFleetCard(context)
+                        else
+                          ...vehicles.map((doc) {
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 14),
+                              child: _buildVehicleCard(
+                                context,
+                                vehicleId: doc.id,
+                                data: doc.data(),
+                              ),
+                            );
+                          }),
+                      ],
                     ),
                   );
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(),
-                  );
-                }
-
-                final vehicles = snapshot.data?.docs ?? [];
-
-                vehicles.sort((a, b) {
-                  final aName = a.data()['nickname']?.toString() ?? '';
-                  final bName = b.data()['nickname']?.toString() ?? '';
-                  return aName.compareTo(bName);
-                });
-
-                return RefreshIndicator(
-                  onRefresh: () async {},
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 90),
-                    children: [
-                      _buildHeaderCard(context, vehicles.length),
-                      const SizedBox(height: 16),
-                      if (vehicles.isEmpty)
-                        _buildEmptyFleetCard(context)
-                      else
-                        ...vehicles.map((doc) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child: _buildVehicleCard(
-                              context,
-                              vehicleId: doc.id,
-                              data: doc.data(),
-                            ),
-                          );
-                        }),
-                    ],
-                  ),
-                );
-              },
-            ),
+                },
+              ),
     );
   }
 
@@ -253,11 +250,12 @@ class VehicleSelectionPage extends StatelessWidget {
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(24),
-        onTap: () => _openDashboard(
-          context,
-          vehicleId: vehicleId,
-          vehicleData: data,
-        ),
+        onTap:
+            () => _openDashboard(
+              context,
+              vehicleId: vehicleId,
+              vehicleData: data,
+            ),
         child: Padding(
           padding: const EdgeInsets.all(18),
           child: Row(
@@ -281,7 +279,10 @@ class VehicleSelectionPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.primary.withValues(alpha: 0.10),
                         borderRadius: BorderRadius.circular(18),
@@ -305,11 +306,12 @@ class VehicleSelectionPage extends StatelessWidget {
                       Icons.edit_outlined,
                       color: AppTheme.primary,
                     ),
-                    onPressed: () => _openEditVehicleProfile(
-                      context,
-                      vehicleId: vehicleId,
-                      vehicleData: data,
-                    ),
+                    onPressed:
+                        () => _openEditVehicleProfile(
+                          context,
+                          vehicleId: vehicleId,
+                          vehicleData: data,
+                        ),
                   ),
                   const Icon(Icons.chevron_right, color: Colors.black45),
                 ],
@@ -343,12 +345,7 @@ class VehicleSelectionPage extends StatelessWidget {
 
       return ClipRRect(
         borderRadius: BorderRadius.circular(22),
-        child: Image.memory(
-          bytes,
-          width: 82,
-          height: 82,
-          fit: BoxFit.cover,
-        ),
+        child: Image.memory(bytes, width: 82, height: 82, fit: BoxFit.cover),
       );
     } catch (error) {
       return Container(
@@ -358,10 +355,7 @@ class VehicleSelectionPage extends StatelessWidget {
           color: AppTheme.warning.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(22),
         ),
-        child: const Icon(
-          Icons.broken_image_outlined,
-          color: AppTheme.warning,
-        ),
+        child: const Icon(Icons.broken_image_outlined, color: AppTheme.warning),
       );
     }
   }

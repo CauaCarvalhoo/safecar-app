@@ -11,12 +11,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/gps_location.dart';
 import '../services/gps_esp32_service.dart';
 import '../theme/app_theme.dart';
+import '../services/trip_firestore_service.dart';
 
-enum _FleetAlertSeverity {
-  info,
-  warning,
-  danger,
-}
+enum _FleetAlertSeverity { info, warning, danger }
 
 class _FleetAlert {
   final String title;
@@ -60,6 +57,7 @@ class _HomePageState extends State<HomePage> {
 
   final Random _random = Random();
   final GpsEsp32Service _gpsService = GpsEsp32Service();
+  final TripFirestoreService _tripService = TripFirestoreService();
 
   Map<String, dynamic>? _vehicleData;
   String _vehicleId = 'main';
@@ -71,6 +69,7 @@ class _HomePageState extends State<HomePage> {
   bool _loadingVehicle = false;
   bool _loadingFleetAlerts = false;
   bool _tripActive = false;
+  bool _savingTrip = false;
 
   bool _gpsLoading = false;
   bool _gpsEsp32Connected = false;
@@ -197,12 +196,13 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('vehicles')
-          .doc(_vehicleId)
-          .get();
+      final doc =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('vehicles')
+              .doc(_vehicleId)
+              .get();
 
       if (!mounted) return;
 
@@ -226,19 +226,16 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openVehicleProfile() async {
-  await Navigator.pushNamed(
-    context,
-    '/vehicle_profile',
-    arguments: {
-      'vehicleId': _vehicleId,
-      'vehicleData': _vehicleData,
-    },
-  );
+    await Navigator.pushNamed(
+      context,
+      '/vehicle_profile',
+      arguments: {'vehicleId': _vehicleId, 'vehicleData': _vehicleData},
+    );
 
-  if (!mounted) return;
+    if (!mounted) return;
 
-  await _loadVehicleDataFromFirestore();
-}
+    await _loadVehicleDataFromFirestore();
+  }
 
   Future<void> _loadFleetAlertsFromFirestore() async {
     final user = _currentUser;
@@ -252,31 +249,34 @@ class _HomePageState extends State<HomePage> {
     });
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('fleetAlerts')
-          .orderBy('createdAt', descending: true)
-          .limit(20)
-          .get();
+      final snapshot =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('fleetAlerts')
+              .orderBy('createdAt', descending: true)
+              .limit(20)
+              .get();
 
-      final alerts = snapshot.docs.map((doc) {
-        final data = doc.data();
-        final createdAt = data['createdAt'];
+      final alerts =
+          snapshot.docs.map((doc) {
+            final data = doc.data();
+            final createdAt = data['createdAt'];
 
-        DateTime alertDate = DateTime.now();
+            DateTime alertDate = DateTime.now();
 
-        if (createdAt is Timestamp) {
-          alertDate = createdAt.toDate();
-        }
+            if (createdAt is Timestamp) {
+              alertDate = createdAt.toDate();
+            }
 
-        return _FleetAlert(
-          title: data['title']?.toString() ?? 'Aviso SafeCar',
-          message: data['message']?.toString() ?? 'Evento registrado na frota.',
-          severity: _alertSeverityFromString(data['severity']?.toString()),
-          createdAt: alertDate,
-        );
-      }).toList();
+            return _FleetAlert(
+              title: data['title']?.toString() ?? 'Aviso SafeCar',
+              message:
+                  data['message']?.toString() ?? 'Evento registrado na frota.',
+              severity: _alertSeverityFromString(data['severity']?.toString()),
+              createdAt: alertDate,
+            );
+          }).toList();
 
       if (!mounted) return;
 
@@ -303,23 +303,29 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).collection('fleetAlerts').add({
-        'vehicleId': _vehicleId,
-        'vehicleName': _vehicleNickname,
-        'title': alert.title,
-        'message': alert.message,
-        'severity': _alertSeverityToString(alert.severity),
-        'latitude': _latitude,
-        'longitude': _longitude,
-        'speedKmh': _currentSpeedKmh,
-        'createdAt': Timestamp.fromDate(alert.createdAt),
-      });
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('fleetAlerts')
+          .add({
+            'vehicleId': _vehicleId,
+            'vehicleName': _vehicleNickname,
+            'title': alert.title,
+            'message': alert.message,
+            'severity': _alertSeverityToString(alert.severity),
+            'latitude': _latitude,
+            'longitude': _longitude,
+            'speedKmh': _currentSpeedKmh,
+            'createdAt': Timestamp.fromDate(alert.createdAt),
+          });
     } catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Aviso gerado localmente, mas não foi salvo no Firebase.'),
+          content: Text(
+            'Aviso gerado localmente, mas não foi salvo no Firebase.',
+          ),
         ),
       );
     }
@@ -373,12 +379,13 @@ class _HomePageState extends State<HomePage> {
     }
 
     try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('fleetAlerts')
-          .limit(50)
-          .get();
+      final snapshot =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .collection('fleetAlerts')
+              .limit(50)
+              .get();
 
       final batch = FirebaseFirestore.instance.batch();
 
@@ -391,16 +398,16 @@ class _HomePageState extends State<HomePage> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Histórico de avisos limpo.'),
-        ),
+        const SnackBar(content: Text('Histórico de avisos limpo.')),
       );
     } catch (error) {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Histórico local limpo, mas houve falha ao limpar o Firebase.'),
+          content: Text(
+            'Histórico local limpo, mas houve falha ao limpar o Firebase.',
+          ),
         ),
       );
     }
@@ -446,8 +453,8 @@ class _HomePageState extends State<HomePage> {
       _tripStartLongitude = null;
 
       if (!_gpsEsp32Connected || !_gpsValid) {
-       _latitude = _defaultLatitude;
-       _longitude = _defaultLongitude;
+        _latitude = _defaultLatitude;
+        _longitude = _defaultLongitude;
       }
 
       _currentSpeedKmh = 0;
@@ -520,10 +527,7 @@ class _HomePageState extends State<HomePage> {
       _calculateDriverScore();
     });
 
-    _evaluateFleetAlerts(
-      speedKmh: nextSpeed,
-      speedDifference: speedDifference,
-    );
+    _evaluateFleetAlerts(speedKmh: nextSpeed, speedDifference: speedDifference);
   }
 
   void _evaluateFleetAlerts({
@@ -533,7 +537,8 @@ class _HomePageState extends State<HomePage> {
     final now = DateTime.now();
 
     if (speedKmh > _speedLimitKmh) {
-      final canAlert = _lastOverspeedAlertAt == null ||
+      final canAlert =
+          _lastOverspeedAlertAt == null ||
           now.difference(_lastOverspeedAlertAt!).inSeconds > 20;
 
       if (canAlert) {
@@ -549,7 +554,8 @@ class _HomePageState extends State<HomePage> {
     }
 
     if (speedDifference > 28) {
-      final canAlert = _lastHarshAlertAt == null ||
+      final canAlert =
+          _lastHarshAlertAt == null ||
           now.difference(_lastHarshAlertAt!).inSeconds > 20;
 
       if (canAlert) {
@@ -576,7 +582,8 @@ class _HomePageState extends State<HomePage> {
       );
 
       if (distanceFromStart > _allowedRadiusKm) {
-        final canAlert = _lastGeofenceAlertAt == null ||
+        final canAlert =
+            _lastGeofenceAlertAt == null ||
             now.difference(_lastGeofenceAlertAt!).inSeconds > 30;
 
         if (canAlert) {
@@ -604,7 +611,8 @@ class _HomePageState extends State<HomePage> {
     final dLat = _degreesToRadians(lat2 - lat1);
     final dLon = _degreesToRadians(lon2 - lon1);
 
-    final a = sin(dLat / 2) * sin(dLat / 2) +
+    final a =
+        sin(dLat / 2) * sin(dLat / 2) +
         cos(_degreesToRadians(lat1)) *
             cos(_degreesToRadians(lat2)) *
             sin(dLon / 2) *
@@ -619,16 +627,9 @@ class _HomePageState extends State<HomePage> {
     return degrees * pi / 180;
   }
 
-  void _addTelemetryPoint({
-    required double speed,
-    required int rpm,
-  }) {
+  void _addTelemetryPoint({required double speed, required int rpm}) {
     _telemetryHistory.add(
-      _TelemetryPoint(
-        time: DateTime.now(),
-        speedKmh: speed,
-        rpm: rpm,
-      ),
+      _TelemetryPoint(time: DateTime.now(), speedKmh: speed, rpm: rpm),
     );
 
     if (_telemetryHistory.length > 24) {
@@ -637,10 +638,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _calculateTripStats() {
-    final movingSpeeds = _telemetryHistory
-        .where((point) => point.speedKmh > 0)
-        .map((point) => point.speedKmh)
-        .toList();
+    final movingSpeeds =
+        _telemetryHistory
+            .where((point) => point.speedKmh > 0)
+            .map((point) => point.speedKmh)
+            .toList();
 
     if (movingSpeeds.isEmpty) {
       _averageSpeedKmh = 0;
@@ -657,7 +659,8 @@ class _HomePageState extends State<HomePage> {
     final maxSpeedPenalty = _maxSpeedKmh > 100 ? 8 : 0;
     final rpmPenalty = _rpm > 4200 ? 4 : 0;
 
-    final score = 100 - overspeedPenalty - harshPenalty - maxSpeedPenalty - rpmPenalty;
+    final score =
+        100 - overspeedPenalty - harshPenalty - maxSpeedPenalty - rpmPenalty;
 
     _driverScore = score.clamp(0, 100).toInt();
   }
@@ -747,11 +750,9 @@ class _HomePageState extends State<HomePage> {
       _gpsSource = 'GPS simulado';
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('GPS do ESP32 desconectado.'),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('GPS do ESP32 desconectado.')));
   }
 
   Future<void> _openLocationInGoogleMaps() async {
@@ -762,10 +763,7 @@ class _HomePageState extends State<HomePage> {
       'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
     );
 
-    final opened = await launchUrl(
-      uri,
-      mode: LaunchMode.externalApplication,
-    );
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
 
     if (!mounted) return;
 
@@ -912,6 +910,99 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _openTripHistory() {
+    Navigator.pushNamed(
+      context,
+      '/trip_history',
+      arguments: {'vehicleId': _vehicleId, 'vehicleName': _vehicleNickname},
+    );
+  }
+
+  Future<void> _finishAndSaveTrip() async {
+    final user = _currentUser;
+    final startedAt = _tripStartedAt;
+
+    if (user == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Usuário não autenticado.')));
+      return;
+    }
+
+    if (startedAt == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Inicie uma viagem antes de salvar.')),
+      );
+      return;
+    }
+
+    if (_distanceKm <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('A viagem ainda não possui distância registrada.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _savingTrip = true;
+    });
+
+    final endedAt = DateTime.now();
+
+    try {
+      await _tripService.saveTrip(
+        userId: user.uid,
+        vehicleId: _vehicleId,
+        vehicleName: _vehicleNickname,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        durationSeconds: endedAt.difference(startedAt).inSeconds,
+        distanceKm: _distanceKm,
+        averageSpeedKmh: _averageSpeedKmh,
+        maxSpeedKmh: _maxSpeedKmh,
+        driverScore: _driverScore,
+        harshEvents: _harshEvents,
+        overspeedEvents: _overspeedEvents,
+        startLatitude: _tripStartLatitude ?? _latitude,
+        startLongitude: _tripStartLongitude ?? _longitude,
+        endLatitude: _latitude,
+        endLongitude: _longitude,
+      );
+
+      _tripTimer?.cancel();
+
+      if (!mounted) return;
+
+      setState(() {
+        _savingTrip = false;
+        _tripActive = false;
+        _currentSpeedKmh = 0;
+        _rpm = 0;
+        _addTelemetryPoint(speed: 0, rpm: 0);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Viagem salva no histórico.')),
+      );
+    } catch (error) {
+      debugPrint('Erro ao salvar viagem: $error');
+
+      if (!mounted) return;
+
+      setState(() {
+        _savingTrip = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+        content: Text('Erro ao salvar viagem: $error'),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -936,6 +1027,11 @@ class _HomePageState extends State<HomePage> {
             tooltip: 'Sair',
             icon: const Icon(Icons.logout),
             onPressed: _logout,
+          ),
+          IconButton(
+            tooltip: 'Histórico de viagens',
+            icon: const Icon(Icons.route_outlined),
+            onPressed: _openTripHistory,
           ),
         ],
       ),
@@ -988,10 +1084,15 @@ class _HomePageState extends State<HomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(_vehicleNickname, style: Theme.of(context).textTheme.titleLarge),
+                        Text(
+                          _vehicleNickname,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
                         const SizedBox(height: 4),
                         Text(
-                          _loadingVehicle ? 'Carregando veículo...' : _vehicleDetails,
+                          _loadingVehicle
+                              ? 'Carregando veículo...'
+                              : _vehicleDetails,
                           style: const TextStyle(color: Colors.black54),
                         ),
                       ],
@@ -1005,9 +1106,10 @@ class _HomePageState extends State<HomePage> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: _tripActive
-                      ? AppTheme.primary.withValues(alpha: 0.10)
-                      : Colors.black.withValues(alpha: 0.04),
+                  color:
+                      _tripActive
+                          ? AppTheme.primary.withValues(alpha: 0.10)
+                          : Colors.black.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
@@ -1021,7 +1123,10 @@ class _HomePageState extends State<HomePage> {
                       child: Text(
                         _statusText,
                         style: TextStyle(
-                          color: _tripActive ? AppTheme.primaryDark : Colors.black87,
+                          color:
+                              _tripActive
+                                  ? AppTheme.primaryDark
+                                  : Colors.black87,
                           fontSize: 23,
                           fontWeight: FontWeight.bold,
                         ),
@@ -1081,10 +1186,7 @@ class _HomePageState extends State<HomePage> {
           color: AppTheme.warning.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(22),
         ),
-        child: const Icon(
-          Icons.broken_image_outlined,
-          color: AppTheme.warning,
-        ),
+        child: const Icon(Icons.broken_image_outlined, color: AppTheme.warning),
       );
     }
   }
@@ -1103,10 +1205,7 @@ class _HomePageState extends State<HomePage> {
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: scoreColor.withValues(alpha: 0.12),
-                border: Border.all(
-                  color: scoreColor,
-                  width: 6,
-                ),
+                border: Border.all(color: scoreColor, width: 6),
               ),
               child: Center(
                 child: Text(
@@ -1124,7 +1223,10 @@ class _HomePageState extends State<HomePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Qualidade do motorista', style: Theme.of(context).textTheme.titleLarge),
+                  Text(
+                    'Qualidade do motorista',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
                   const SizedBox(height: 6),
                   Text(
                     _scoreLabel(),
@@ -1158,7 +1260,10 @@ class _HomePageState extends State<HomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Localização do veículo', style: Theme.of(context).textTheme.titleLarge),
+              Text(
+                'Localização do veículo',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
               const SizedBox(height: 6),
               Text(
                 _locationDescription(),
@@ -1176,9 +1281,7 @@ class _HomePageState extends State<HomePage> {
                     Positioned.fill(
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(22),
-                        child: CustomPaint(
-                          painter: _FleetMapPainter(),
-                        ),
+                        child: CustomPaint(painter: _FleetMapPainter()),
                       ),
                     ),
                     Center(
@@ -1206,7 +1309,10 @@ class _HomePageState extends State<HomePage> {
                       right: 16,
                       top: 16,
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.92),
                           borderRadius: BorderRadius.circular(18),
@@ -1236,7 +1342,10 @@ class _HomePageState extends State<HomePage> {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  const Icon(Icons.location_on_outlined, color: AppTheme.primary),
+                  const Icon(
+                    Icons.location_on_outlined,
+                    color: AppTheme.primary,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1247,7 +1356,11 @@ class _HomePageState extends State<HomePage> {
                       ),
                     ),
                   ),
-                  const Icon(Icons.map_outlined, color: Colors.black45, size: 22),
+                  const Icon(
+                    Icons.map_outlined,
+                    color: Colors.black45,
+                    size: 22,
+                  ),
                 ],
               ),
             ],
@@ -1341,7 +1454,10 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Controle da viagem', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Controle da viagem',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 8),
             const Text(
               'Modo simulado até a conexão real com ELM327 e GPS.',
@@ -1351,9 +1467,12 @@ class _HomePageState extends State<HomePage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: _tripActive ? _pauseTripSimulation : _startTripSimulation,
+                onPressed:
+                    _tripActive ? _pauseTripSimulation : _startTripSimulation,
                 icon: Icon(_tripActive ? Icons.pause : Icons.play_arrow),
-                label: Text(_tripActive ? 'Pausar viagem' : 'Iniciar viagem simulada'),
+                label: Text(
+                  _tripActive ? 'Pausar viagem' : 'Iniciar viagem simulada',
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -1369,9 +1488,30 @@ class _HomePageState extends State<HomePage> {
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: _gpsLoading
-                    ? null
-                    : _gpsEsp32Connected
+                onPressed: _savingTrip ? null : _finishAndSaveTrip,
+                icon:
+                    _savingTrip
+                        ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                        : const Icon(Icons.save_outlined),
+                label: Text(
+                  _savingTrip
+                      ? 'Salvando viagem...'
+                      : 'Finalizar e salvar viagem',
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed:
+                    _gpsLoading
+                        ? null
+                        : _gpsEsp32Connected
                         ? _disconnectGpsEsp32
                         : _connectGpsEsp32,
                 icon: Icon(
@@ -1381,8 +1521,8 @@ class _HomePageState extends State<HomePage> {
                   _gpsLoading
                       ? 'Conectando GPS...'
                       : _gpsEsp32Connected
-                          ? 'Desconectar GPS ESP32'
-                          : 'Conectar GPS ESP32',
+                      ? 'Desconectar GPS ESP32'
+                      : 'Conectar GPS ESP32',
                 ),
               ),
             ),
@@ -1393,9 +1533,10 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildSpeedChart() {
-    final spots = _telemetryHistory.asMap().entries.map((entry) {
-      return FlSpot(entry.key.toDouble(), entry.value.speedKmh);
-    }).toList();
+    final spots =
+        _telemetryHistory.asMap().entries.map((entry) {
+          return FlSpot(entry.key.toDouble(), entry.value.speedKmh);
+        }).toList();
 
     final chartSpots = spots.isEmpty ? [const FlSpot(0, 0)] : spots;
 
@@ -1408,7 +1549,10 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Gráfico de velocidade', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Gráfico de velocidade',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 6),
             const Text(
               'Variação da velocidade coletada da telemetria OBD-II.',
@@ -1435,9 +1579,15 @@ class _HomePageState extends State<HomePage> {
                   ),
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -1488,7 +1638,9 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Expanded(
                   child: Text(
-                    _loadingFleetAlerts ? 'Carregando avisos...' : 'Histórico de avisos',
+                    _loadingFleetAlerts
+                        ? 'Carregando avisos...'
+                        : 'Histórico de avisos',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -1573,7 +1725,10 @@ class _HomePageState extends State<HomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Integrações da frota', style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'Integrações da frota',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 12),
             _buildInfoLine(
               icon: Icons.bluetooth,
@@ -1588,11 +1743,12 @@ class _HomePageState extends State<HomePage> {
             _buildInfoLine(
               icon: Icons.gps_fixed,
               label: 'GPS',
-              value: _gpsEsp32Connected
-                  ? _gpsValid
-                      ? 'NEO-6M ativo ($_gpsSatellites sat.)'
-                      : 'Aguardando fix ($_gpsSatellites sat.)'
-                  : 'Simulado até ESP32',
+              value:
+                  _gpsEsp32Connected
+                      ? _gpsValid
+                          ? 'NEO-6M ativo ($_gpsSatellites sat.)'
+                          : 'Aguardando fix ($_gpsSatellites sat.)'
+                      : 'Simulado até ESP32',
             ),
             _buildInfoLine(
               icon: Icons.satellite_alt,
@@ -1658,27 +1814,27 @@ class _HomePageState extends State<HomePage> {
 class _FleetMapPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
-    final backgroundPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          Color(0xFF244B44),
-          Color(0xFF3A6A60),
-        ],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
+    final backgroundPaint =
+        Paint()
+          ..shader = const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFF244B44), Color(0xFF3A6A60)],
+          ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     canvas.drawRect(Offset.zero & size, backgroundPaint);
 
-    final roadPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.18)
-      ..strokeWidth = 14
-      ..strokeCap = StrokeCap.round;
+    final roadPaint =
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.18)
+          ..strokeWidth = 14
+          ..strokeCap = StrokeCap.round;
 
-    final roadPaintThin = Paint()
-      ..color = Colors.white.withValues(alpha: 0.12)
-      ..strokeWidth = 8
-      ..strokeCap = StrokeCap.round;
+    final roadPaintThin =
+        Paint()
+          ..color = Colors.white.withValues(alpha: 0.12)
+          ..strokeWidth = 8
+          ..strokeCap = StrokeCap.round;
 
     canvas.drawLine(
       Offset(size.width * 0.12, size.height * 0.20),
