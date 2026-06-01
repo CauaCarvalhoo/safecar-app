@@ -55,6 +55,9 @@ class _HomePageState extends State<HomePage> {
   static const double _speedLimitKmh = 80;
   static const double _allowedRadiusKm = 5;
 
+  static const double _defaultLatitude = -22.737100;
+  static const double _defaultLongitude = -47.333100;
+
   final Random _random = Random();
   final GpsEsp32Service _gpsService = GpsEsp32Service();
 
@@ -83,8 +86,8 @@ class _HomePageState extends State<HomePage> {
   DateTime? _lastHarshAlertAt;
   DateTime? _lastGeofenceAlertAt;
 
-  double _latitude = -22.7371;
-  double _longitude = -47.3331;
+  double _latitude = _defaultLatitude;
+  double _longitude = _defaultLongitude;
 
   double _currentSpeedKmh = 0;
   double _averageSpeedKmh = 0;
@@ -443,8 +446,8 @@ class _HomePageState extends State<HomePage> {
       _tripStartLongitude = null;
 
       if (!_gpsEsp32Connected || !_gpsValid) {
-        _latitude = -22.7371;
-        _longitude = -47.3331;
+       _latitude = _defaultLatitude;
+       _longitude = _defaultLongitude;
       }
 
       _currentSpeedKmh = 0;
