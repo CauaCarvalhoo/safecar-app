@@ -23,8 +23,23 @@ class VehicleSelectionPage extends StatelessWidget {
     );
   }
 
-  Future<void> _openVehicleProfile(BuildContext context) async {
+  Future<void> _openNewVehicleProfile(BuildContext context) async {
     await Navigator.pushNamed(context, '/vehicle_profile');
+  }
+
+  Future<void> _openEditVehicleProfile(
+    BuildContext context, {
+    required String vehicleId,
+    required Map<String, dynamic> vehicleData,
+  }) async {
+    await Navigator.pushNamed(
+      context,
+      '/vehicle_profile',
+      arguments: {
+        'vehicleId': vehicleId,
+        'vehicleData': vehicleData,
+      },
+    );
   }
 
   void _openDashboard(
@@ -52,11 +67,21 @@ class VehicleSelectionPage extends StatelessWidget {
         title: const Text('Selecionar veículo'),
         actions: [
           IconButton(
+            tooltip: 'Novo veículo',
+            icon: const Icon(Icons.add),
+            onPressed: () => _openNewVehicleProfile(context),
+          ),
+          IconButton(
             tooltip: 'Sair',
             icon: const Icon(Icons.logout),
             onPressed: () => _logout(context),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => _openNewVehicleProfile(context),
+        icon: const Icon(Icons.add),
+        label: const Text('Novo veículo'),
       ),
       body: user == null
           ? const Center(
@@ -98,7 +123,7 @@ class VehicleSelectionPage extends StatelessWidget {
                 return RefreshIndicator(
                   onRefresh: () async {},
                   child: ListView(
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 90),
                     children: [
                       _buildHeaderCard(context, vehicles.length),
                       const SizedBox(height: 16),
@@ -115,12 +140,6 @@ class VehicleSelectionPage extends StatelessWidget {
                             ),
                           );
                         }),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => _openVehicleProfile(context),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Cadastrar ou editar veículo'),
-                      ),
                     ],
                   ),
                 );
@@ -200,7 +219,7 @@ class VehicleSelectionPage extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
-                onPressed: () => _openVehicleProfile(context),
+                onPressed: () => _openNewVehicleProfile(context),
                 icon: const Icon(Icons.add),
                 label: const Text('Cadastrar veículo'),
               ),
@@ -278,7 +297,23 @@ class VehicleSelectionPage extends StatelessWidget {
                   ],
                 ),
               ),
-              const Icon(Icons.chevron_right, color: Colors.black45),
+              Column(
+                children: [
+                  IconButton(
+                    tooltip: 'Editar veículo',
+                    icon: const Icon(
+                      Icons.edit_outlined,
+                      color: AppTheme.primary,
+                    ),
+                    onPressed: () => _openEditVehicleProfile(
+                      context,
+                      vehicleId: vehicleId,
+                      vehicleData: data,
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: Colors.black45),
+                ],
+              ),
             ],
           ),
         ),

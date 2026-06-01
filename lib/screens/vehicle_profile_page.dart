@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -16,29 +15,50 @@ class VehicleProfilePage extends StatefulWidget {
 }
 
 class _VehicleProfilePageState extends State<VehicleProfilePage> {
-  final _formKey = GlobalKey<FormState>();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final ImagePicker _imagePicker = ImagePicker();
 
-  final _nicknameController = TextEditingController();
-  final _brandController = TextEditingController();
-  final _modelController = TextEditingController();
-  final _yearController = TextEditingController();
-  final _plateController = TextEditingController();
-  final _colorController = TextEditingController();
+  final TextEditingController _nicknameController = TextEditingController();
+  final TextEditingController _brandController = TextEditingController();
+  final TextEditingController _modelController = TextEditingController();
+  final TextEditingController _yearController = TextEditingController();
+  final TextEditingController _plateController = TextEditingController();
+  final TextEditingController _colorController = TextEditingController();
 
-  Uint8List? _vehicleImageBytes;
-  String? _vehicleImageBase64;
-  String? _vehicleImageName;
+  String? _vehicleId;
+  String _imageBase64 = '';
 
   bool _loading = false;
-  bool _saving = false;
+  bool _routeArgumentsLoaded = false;
 
   User? get _currentUser => FirebaseAuth.instance.currentUser;
 
+  bool get _editingVehicle => _vehicleId != null && _vehicleId!.isNotEmpty;
+
   @override
-  void initState() {
-    super.initState();
-    _loadVehicleData();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    if (_routeArgumentsLoaded) {
+      return;
+    }
+
+    _routeArgumentsLoaded = true;
+
+    final args = ModalRoute.of(context)?.settings.arguments;
+
+    if (args is Map) {
+      final receivedVehicleId = args['vehicleId']?.toString();
+      final receivedVehicleData = args['vehicleData'];
+
+      if (receivedVehicleId != null && receivedVehicleId.isNotEmpty) {
+        _vehicleId = receivedVehicleId;
+      }
+
+      if (receivedVehicleData is Map<String, dynamic>) {
+        _fillForm(receivedVehicleData);
+      }
+    }
   }
 
   @override
@@ -52,10 +72,156 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     super.dispose();
   }
 
-  Future<void> _loadVehicleData() async {
+  void _fillForm(Map<String, dynamic> data) {
+    _nicknameController.text = data['nickname']?.toString() ?? '';
+    _brandController.text = data['brand']?.toString() ?? '';
+    _modelController.text = data['model']?.toString() ?? '';
+    _yearController.text = data['year']?.toString() ?? '';
+    _plateController.text = data['plate']?.toString() ?? '';
+    _colorController.text = data['color']?.toString() ?? '';
+    _imageBase64 = data['imageBase64']?.toString() ?? '';
+  }
+
+  Future<void> _pickVehicleImage() async {
+    final image = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 55,
+      maxWidth: 900,
+      maxHeight: 900,
+    );
+
+    if (image == null) {
+      return;
+    }
+
+    final bytes = await image.readAsBytes();
+
+    setState(() {
+      _imageBase64 = base64Encode(bytes);
+    });
+  }
+
+  void _removeVehicleImage() {
+    setState(() {
+      _imageBase64 = '';
+    });
+  }
+
+  Future<void> _saveVehicle() async {
     final user = _currentUser;
 
     if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Usuário não autenticado.'),
+        ),
+      );
+      return;
+    }
+
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+    });
+
+    final vehiclesCollection = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('vehicles');
+
+    final vehicleData = {
+      'nickname': _nicknameController.text.trim(),
+      'brand': _brandController.text.trim(),
+      'model': _modelController.text.trim(),
+      'year': _yearController.text.trim(),
+      'plate': _plateController.text.trim().toUpperCase(),
+      'color': _colorController.text.trim(),
+      'imageBase64': _imageBase64,
+      'updatedAt': Timestamp.now(),
+    };
+
+    try {
+      if (_editingVehicle) {
+        await vehiclesCollection.doc(_vehicleId).set(
+          vehicleData,
+          SetOptions(merge: true),
+        );
+      } else {
+        await vehiclesCollection.add({
+          ...vehicleData,
+          'createdAt': Timestamp.now(),
+        });
+      }
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _editingVehicle
+                ? 'Veículo atualizado com sucesso.'
+                : 'Veículo cadastrado com sucesso.',
+          ),
+        ),
+      );
+
+      Navigator.pop(context, true);
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _loading = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível salvar o veículo.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _confirmDeleteVehicle() async {
+    if (!_editingVehicle) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Excluir veículo'),
+          content: const Text(
+            'Tem certeza que deseja excluir este veículo da frota?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Excluir'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    await _deleteVehicle();
+  }
+
+  Future<void> _deleteVehicle() async {
+    final user = _currentUser;
+
+    if (user == null || _vehicleId == null) {
       return;
     }
 
@@ -64,413 +230,272 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     });
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('vehicles')
-          .doc('main')
-          .get();
-
-      if (doc.exists) {
-        final data = doc.data();
-
-        _nicknameController.text = data?['nickname']?.toString() ?? '';
-        _brandController.text = data?['brand']?.toString() ?? '';
-        _modelController.text = data?['model']?.toString() ?? '';
-        _yearController.text = data?['year']?.toString() ?? '';
-        _plateController.text = data?['plate']?.toString() ?? '';
-        _colorController.text = data?['color']?.toString() ?? '';
-
-        final savedImageBase64 = data?['imageBase64']?.toString();
-
-        if (savedImageBase64 != null && savedImageBase64.isNotEmpty) {
-          _vehicleImageBase64 = savedImageBase64;
-          _vehicleImageBytes = base64Decode(savedImageBase64);
-          _vehicleImageName = data?['imageName']?.toString();
-        }
-      }
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não foi possível carregar os dados do veículo.'),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _pickVehicleImage() async {
-    try {
-      final pickedImage = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
-        maxWidth: 800,
-        imageQuality: 55,
-      );
-
-      if (pickedImage == null) {
-        return;
-      }
-
-      final bytes = await pickedImage.readAsBytes();
-      final imageBase64 = base64Encode(bytes);
-
-      if (imageBase64.length > 900000) {
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Imagem muito grande. Escolha uma imagem menor.'),
-          ),
-        );
-        return;
-      }
-
-      setState(() {
-        _vehicleImageBytes = bytes;
-        _vehicleImageBase64 = imageBase64;
-        _vehicleImageName = pickedImage.name;
-      });
-    } catch (error) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não foi possível selecionar a imagem.'),
-        ),
-      );
-    }
-  }
-
-  void _removeVehicleImage() {
-    setState(() {
-      _vehicleImageBytes = null;
-      _vehicleImageBase64 = null;
-      _vehicleImageName = null;
-    });
-  }
-
-  Future<void> _saveVehicleData() async {
-    final user = _currentUser;
-
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Faça login novamente para salvar.')),
-      );
-      return;
-    }
-
-    final formIsValid = _formKey.currentState?.validate() ?? false;
-
-    if (!formIsValid) {
-      return;
-    }
-
-    setState(() {
-      _saving = true;
-    });
-
-    try {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(user.uid)
           .collection('vehicles')
-          .doc('main')
-          .set({
-        'nickname': _nicknameController.text.trim(),
-        'brand': _brandController.text.trim(),
-        'model': _modelController.text.trim(),
-        'year': _yearController.text.trim(),
-        'plate': _plateController.text.trim().toUpperCase(),
-        'color': _colorController.text.trim(),
-        'imageBase64': _vehicleImageBase64 ?? '',
-        'imageName': _vehicleImageName ?? '',
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
+          .doc(_vehicleId)
+          .delete();
 
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veículo salvo com sucesso!')),
+        const SnackBar(
+          content: Text('Veículo excluído da frota.'),
+        ),
       );
 
       Navigator.pop(context, true);
     } catch (error) {
       if (!mounted) return;
 
+      setState(() {
+        _loading = false;
+      });
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Não foi possível salvar o veículo. Tente novamente.'),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-        });
-      }
-    }
-  }
-
-  Widget _buildVehiclePreview() {
-    if (_vehicleImageBytes == null) {
-      return Container(
-        height: 190,
-        decoration: BoxDecoration(
-          color: AppTheme.primary.withValues(alpha: 0.10),
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: const Center(
-          child: Icon(
-            Icons.directions_car_filled_rounded,
-            color: AppTheme.primary,
-            size: 82,
-          ),
+          content: Text('Não foi possível excluir o veículo.'),
         ),
       );
     }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: Image.memory(
-        _vehicleImageBytes!,
-        height: 190,
-        width: double.infinity,
-        fit: BoxFit.cover,
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final isBusy = _loading || _saving;
+    final title = _editingVehicle ? 'Editar veículo' : 'Cadastrar veículo';
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
-        title: const Text('Veículo monitorado'),
-        leading: IconButton(
-          tooltip: 'Voltar',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            Navigator.pop(context);
-          },
-        ),
+        title: Text(title),
+        actions: [
+          if (_editingVehicle)
+            IconButton(
+              tooltip: 'Excluir veículo',
+              icon: const Icon(Icons.delete_outline),
+              onPressed: _loading ? null : _confirmDeleteVehicle,
+            ),
+        ],
       ),
       body: SafeArea(
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(18),
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(20),
-                        child: Form(
-                          key: _formKey,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Dados do veículo',
-                                style: Theme.of(context).textTheme.titleLarge,
-                              ),
-                              const SizedBox(height: 8),
-                              const Text(
-                                'Cadastre as informações do veículo que será monitorado pelo SafeCar.',
-                                style: TextStyle(color: Colors.black54),
-                              ),
-                              const SizedBox(height: 18),
+        child: ListView(
+          padding: const EdgeInsets.all(18),
+          children: [
+            _buildHeaderCard(),
+            const SizedBox(height: 16),
+            _buildFormCard(),
+          ],
+        ),
+      ),
+    );
+  }
 
-                              _buildVehiclePreview(),
-                              const SizedBox(height: 12),
+  Widget _buildHeaderCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          children: [
+            _buildVehicleImagePreview(),
+            const SizedBox(height: 14),
+            Text(
+              _editingVehicle
+                  ? 'Atualize os dados do veículo'
+                  : 'Adicione um veículo à frota',
+              style: Theme.of(context).textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Essas informações serão usadas na tela de seleção e na dashboard da frota.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loading ? null : _pickVehicleImage,
+                    icon: const Icon(Icons.photo_library_outlined),
+                    label: const Text('Imagem'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _loading || _imageBase64.isEmpty
+                        ? null
+                        : _removeVehicleImage,
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Remover'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
-                              ElevatedButton.icon(
-                                onPressed: isBusy ? null : _pickVehicleImage,
-                                icon: const Icon(Icons.photo_library_outlined),
-                                label: const Text('Escolher imagem do veículo'),
-                              ),
+  Widget _buildVehicleImagePreview() {
+    if (_imageBase64.isEmpty) {
+      return Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          color: AppTheme.primary.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: const Icon(
+          Icons.directions_car_filled_rounded,
+          color: AppTheme.primary,
+          size: 64,
+        ),
+      );
+    }
 
-                              if (_vehicleImageBytes != null) ...[
-                                const SizedBox(height: 8),
-                                OutlinedButton.icon(
-                                  onPressed: isBusy ? null : _removeVehicleImage,
-                                  icon: const Icon(Icons.delete_outline),
-                                  label: const Text('Remover imagem'),
-                                ),
-                              ],
+    try {
+      final bytes = base64Decode(_imageBase64);
 
-                              if (_vehicleImageName != null && _vehicleImageName!.isNotEmpty) ...[
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Imagem selecionada: $_vehicleImageName',
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: Colors.black54,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(30),
+        child: Image.memory(
+          bytes,
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+        ),
+      );
+    } catch (error) {
+      return Container(
+        width: 120,
+        height: 120,
+        decoration: BoxDecoration(
+          color: AppTheme.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(30),
+        ),
+        child: const Icon(
+          Icons.broken_image_outlined,
+          color: AppTheme.warning,
+          size: 54,
+        ),
+      );
+    }
+  }
 
-                              const SizedBox(height: 18),
+  Widget _buildFormCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            children: [
+              TextFormField(
+                controller: _nicknameController,
+                decoration: const InputDecoration(
+                  labelText: 'Apelido do veículo',
+                  prefixIcon: Icon(Icons.drive_eta_outlined),
+                  hintText: 'Ex: Caminhão 01, Van Entregas, Carro Diretor',
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Informe um apelido para o veículo.';
+                  }
 
-                              TextFormField(
-                                controller: _nicknameController,
-                                textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                  labelText: 'Apelido do veículo',
-                                  hintText: 'Ex: Meu Civic',
-                                  prefixIcon: Icon(Icons.drive_eta_outlined),
-                                ),
-                                validator: (value) {
-                                  final text = value?.trim() ?? '';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _brandController,
+                decoration: const InputDecoration(
+                  labelText: 'Marca',
+                  prefixIcon: Icon(Icons.factory_outlined),
+                  hintText: 'Ex: Fiat, Ford, Volkswagen',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _modelController,
+                decoration: const InputDecoration(
+                  labelText: 'Modelo',
+                  prefixIcon: Icon(Icons.directions_car_outlined),
+                  hintText: 'Ex: Fiorino, Ranger, Delivery',
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _yearController,
+                decoration: const InputDecoration(
+                  labelText: 'Ano',
+                  prefixIcon: Icon(Icons.calendar_month_outlined),
+                  hintText: 'Ex: 2020',
+                ),
+                keyboardType: TextInputType.number,
+                validator: (value) {
+                  final text = value?.trim() ?? '';
 
-                                  if (text.isEmpty) {
-                                    return 'Informe um apelido para o veículo.';
-                                  }
+                  if (text.isEmpty) {
+                    return null;
+                  }
 
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 16),
+                  if (text.length != 4 || int.tryParse(text) == null) {
+                    return 'Informe um ano válido com 4 dígitos.';
+                  }
 
-                              TextFormField(
-                                controller: _brandController,
-                                textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                  labelText: 'Marca',
-                                  hintText: 'Ex: Honda',
-                                  prefixIcon: Icon(Icons.business_outlined),
-                                ),
-                                validator: (value) {
-                                  final text = value?.trim() ?? '';
-
-                                  if (text.isEmpty) {
-                                    return 'Informe a marca.';
-                                  }
-
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 16),
-
-                              TextFormField(
-                                controller: _modelController,
-                                textInputAction: TextInputAction.next,
-                                decoration: const InputDecoration(
-                                  labelText: 'Modelo',
-                                  hintText: 'Ex: Civic',
-                                  prefixIcon: Icon(Icons.directions_car_outlined),
-                                ),
-                                validator: (value) {
-                                  final text = value?.trim() ?? '';
-
-                                  if (text.isEmpty) {
-                                    return 'Informe o modelo.';
-                                  }
-
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 16),
-
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: TextFormField(
-                                      controller: _yearController,
-                                      keyboardType: TextInputType.number,
-                                      textInputAction: TextInputAction.next,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Ano',
-                                        hintText: 'Ex: 2018',
-                                        prefixIcon: Icon(Icons.calendar_month_outlined),
-                                      ),
-                                      validator: (value) {
-                                        final text = value?.trim() ?? '';
-
-                                        if (text.isEmpty) {
-                                          return 'Informe o ano.';
-                                        }
-
-                                        if (text.length != 4) {
-                                          return 'Ano inválido.';
-                                        }
-
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: TextFormField(
-                                      controller: _colorController,
-                                      textInputAction: TextInputAction.next,
-                                      decoration: const InputDecoration(
-                                        labelText: 'Cor',
-                                        hintText: 'Ex: Prata',
-                                        prefixIcon: Icon(Icons.palette_outlined),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 16),
-
-                              TextFormField(
-                                controller: _plateController,
-                                textCapitalization: TextCapitalization.characters,
-                                textInputAction: TextInputAction.done,
-                                decoration: const InputDecoration(
-                                  labelText: 'Placa',
-                                  hintText: 'Ex: ABC1D23',
-                                  prefixIcon: Icon(Icons.pin_outlined),
-                                ),
-                                validator: (value) {
-                                  final text = value?.trim() ?? '';
-
-                                  if (text.isEmpty) {
-                                    return 'Informe a placa.';
-                                  }
-
-                                  if (text.length < 7) {
-                                    return 'Placa inválida.';
-                                  }
-
-                                  return null;
-                                },
-                              ),
-                              const SizedBox(height: 24),
-
-                              ElevatedButton.icon(
-                                onPressed: isBusy ? null : _saveVehicleData,
-                                icon: _saving
-                                    ? const SizedBox(
-                                        width: 18,
-                                        height: 18,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.save_outlined),
-                                label: Text(_saving ? 'Salvando...' : 'Salvar veículo'),
-                              ),
-                            ],
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _plateController,
+                decoration: const InputDecoration(
+                  labelText: 'Placa',
+                  prefixIcon: Icon(Icons.confirmation_number_outlined),
+                  hintText: 'Ex: ABC1D23',
+                ),
+                textCapitalization: TextCapitalization.characters,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _colorController,
+                decoration: const InputDecoration(
+                  labelText: 'Cor',
+                  prefixIcon: Icon(Icons.palette_outlined),
+                  hintText: 'Ex: Branco, Prata, Preto',
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _loading ? null : _saveVehicle,
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
                           ),
-                        ),
-                      ),
-                    ),
+                        )
+                      : const Icon(Icons.save_outlined),
+                  label: Text(
+                    _loading
+                        ? 'Salvando...'
+                        : _editingVehicle
+                            ? 'Salvar alterações'
+                            : 'Cadastrar veículo',
                   ),
                 ),
               ),
+            ],
+          ),
+        ),
       ),
     );
   }

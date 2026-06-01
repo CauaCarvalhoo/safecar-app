@@ -223,12 +223,19 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _openVehicleProfile() async {
-    await Navigator.pushNamed(context, '/vehicle_profile');
+  await Navigator.pushNamed(
+    context,
+    '/vehicle_profile',
+    arguments: {
+      'vehicleId': _vehicleId,
+      'vehicleData': _vehicleData,
+    },
+  );
 
-    if (!mounted) return;
+  if (!mounted) return;
 
-    await _loadVehicleDataFromFirestore();
-  }
+  await _loadVehicleDataFromFirestore();
+}
 
   Future<void> _loadFleetAlertsFromFirestore() async {
     final user = _currentUser;
