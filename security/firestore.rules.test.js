@@ -16,7 +16,7 @@ const {
   assertFails,
 } = require('@firebase/rules-unit-testing');
 
-const PROJECT_ID = 'safecar-rules-test';
+const PROJECT_ID = 'demo-safecar-rules';
 
 let env;
 
