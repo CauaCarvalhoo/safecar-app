@@ -39,41 +39,52 @@ service cloud.firestore {
     // executado exclusivamente por um backend autenticado (Admin SDK).
     // As colecoes legadas /users permanecem inalteradas.
     match /organizations/{organizationId} {
-      function isMember() {
-        return request.auth != null &&
-          exists(/databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid));
+      function memberPath() {
+        return /databases/$(database)/documents/organizations/$(organizationId)/members/$(request.auth.uid);
       }
 
-      allow read: if isMember();
+      function isActiveMember() {
+        return request.auth != null &&
+          exists(memberPath()) &&
+          get(memberPath()).data.active == true;
+      }
+
+      function isOrganizationAdmin() {
+        return isActiveMember() &&
+          get(memberPath()).data.role in ['owner', 'admin'];
+      }
+
+      allow read: if isActiveMember();
       allow write: if false;
 
       match /members/{memberId} {
-        allow read: if isMember();
+        allow read: if isActiveMember() &&
+          (memberId == request.auth.uid || isOrganizationAdmin());
         allow write: if false;
       }
 
       match /vehicles/{vehicleId} {
-        allow read: if isMember();
+        allow read: if isActiveMember();
         allow write: if false;
       }
 
       match /drivers/{driverId} {
-        allow read: if isMember();
+        allow read: if isActiveMember();
         allow write: if false;
       }
 
       match /trips/{tripId} {
-        allow read: if isMember();
+        allow read: if isActiveMember();
         allow write: if false;
       }
 
       match /alerts/{alertId} {
-        allow read: if isMember();
+        allow read: if isActiveMember();
         allow write: if false;
       }
 
       match /devices/{deviceId} {
-        allow read: if isMember();
+        allow read: if isActiveMember();
         allow write: if false;
       }
     }
