@@ -64,6 +64,34 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
     }
   }
 
+  Future<void> _confirmDeleteTrip(String tripId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Excluir viagem?'),
+        content: const Text(
+          'Esta viagem será removida do histórico e não poderá ser recuperada.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    await _deleteTrip(tripId);
+  }
+
   Future<void> _deleteTrip(String tripId) async {
     final user = _currentUser;
 
@@ -295,7 +323,7 @@ class _TripHistoryPageState extends State<TripHistoryPage> {
                 IconButton(
                   tooltip: 'Excluir viagem',
                   icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _deleteTrip(tripId),
+                  onPressed: () => _confirmDeleteTrip(tripId),
                 ),
               ],
             ),
