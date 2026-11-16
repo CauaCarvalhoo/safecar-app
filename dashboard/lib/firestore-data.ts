@@ -25,7 +25,7 @@ export function watchFleet(scope: FleetScope, onData: (value: FleetData) => void
   const errors = (error: Error) => onError(error.message || "Erro ao consultar o Firestore");
   const emit = () => { if (received.size === 3) onData({...state}); };
   const listen = <T>(name: keyof FleetData, convert: (id: string, value: DocumentData) => T) =>
-    onSnapshot(collection(db, ...root, name), snapshot => {
+    onSnapshot(collection(db, root[0], root[1], name), snapshot => {
       // Views are read-only. Never show generated or placeholder telemetry.
       (state as Record<string, unknown>)[name] = snapshot.docs.map(d => convert(d.id, d.data()));
       received.add(name);
