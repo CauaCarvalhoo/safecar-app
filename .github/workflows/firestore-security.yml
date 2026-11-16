@@ -1,0 +1,31 @@
+name: Firestore Security Rules
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/safecar-fleet-obd
+  push:
+    branches:
+      - main
+      - feature/safecar-fleet-obd
+
+jobs:
+  firestore-security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install test dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run Firestore emulator security tests
+        run: npx firebase-tools@latest emulators:exec --config firebase.emulator.json --project demo-safecar-rules --only firestore "npm test"
