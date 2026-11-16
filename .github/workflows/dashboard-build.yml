@@ -1,0 +1,31 @@
+name: Dashboard Web Build
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/safecar-fleet-obd
+  push:
+    branches:
+      - main
+      - feature/safecar-fleet-obd
+
+jobs:
+  build-dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
