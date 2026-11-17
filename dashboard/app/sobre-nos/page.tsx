@@ -53,7 +53,6 @@ export default function SobreNos() {
         </div>
       </section>
       <div className="ux-container">
-        <section className="ux-intro" aria-label="Como usar este material"><p><strong>Roteiro de apresentação:</strong> esta página foi organizada para uma defesa oral de 10–15 minutos. Use cada bloco para explicar a teoria, apontar uma decisão concreta no SafeCar e demonstrar sua consequência para o usuário.</p><span>Conteúdo acadêmico · versão revisável</span></section>
         <nav className="ux-section-index" aria-label="Índice da defesa">{sections.map(s=><a key={s.id} href={"#"+s.id}><span>{s.number}</span><strong>{s.name}</strong><span aria-hidden="true">↗</span></a>)}</nav>
 
         <section className="ux-section" id="fundamentos" aria-labelledby="fundamentos-title">
