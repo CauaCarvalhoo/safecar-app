@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">SafeCar Fleet</title>
+  <desc id="desc">Carro protegido por escudo de segurança</desc>
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3A6A60"/>
+      <stop offset="100%" stop-color="#244B44"/>
+    </linearGradient>
+    <linearGradient id="shield" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#65A688"/>
+      <stop offset="100%" stop-color="#2A715B"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="124" height="124" rx="28" fill="url(#base)"/>
+  <path d="M16 97 C40 82 67 80 108 82" stroke="#B1E4C2" stroke-width="5" stroke-linecap="round" fill="none"/>
+  <path d="M20 53 L27 34 Q30 27 39 27 H78 Q88 27 91 36 L95 47" stroke="white" stroke-width="6" fill="none" stroke-linejoin="round"/>
+  <path d="M24 53 H90 Q95 53 96 60 L98 73 H22 V61 Q22 56 24 53Z" fill="#FFFFFF"/>
+  <path d="M32 34 H78 Q82 34 84 40 L87 49 H28 L32 39 Q33 35 38 34Z" fill="#244B44"/>
+  <path d="M28 62 H43 L49 69 H29 Q26 69 26 66Z" fill="#3A6A60"/>
+  <path d="M20 52 L13 49 Q10 48 10 45 Q10 42 14 42 H21" fill="white"/>
+  <path d="M26 73 V80 Q26 83 30 83 H35 Q39 83 39 78 V73Z" fill="white"/>
+  <path d="M73 73 V80 Q73 83 77 83 H82 Q86 83 86 78 V73Z" fill="white"/>
+  <path d="M74 54 L97 44 L119 54 V75 Q118 94 97 105 Q75 94 74 75 Z" fill="url(#shield)" stroke="#FFFFFF" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M86 74 L95 83 L109 66" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
