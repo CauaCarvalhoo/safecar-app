@@ -3,7 +3,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "SafeCar Fleet | Central de Operações",
-  description: "Painel administrativo demonstrativo de monitoramento e gestão de frotas.",
+  description: "Painel Web para gestão de veículos, viagens e alertas do SafeCar Fleet.",
+  icons: { icon: "/icon.svg", shortcut: "/icon.svg" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
