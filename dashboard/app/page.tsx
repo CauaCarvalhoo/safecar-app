@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "../lib/firebase";
 import { watchFleet, verifyAdminMembership, type FleetData, type FleetScope } from "../lib/firestore-data";
@@ -77,16 +78,16 @@ export default function Home() {
 
   return <div className="app-shell">
     <aside className={"sidebar "+(mobileMenu?"show":"")}>
-      <div className="brand"><span className="brand-icon">S</span><div><strong>SafeCar<span> Fleet</span></strong><small>CENTRAL DE OPERAÇÕES</small></div></div>
+      <div className="brand"><Image className="brand-icon" src="/icon.svg" width={40} height={40} alt="SafeCar Fleet: carro com escudo" /><div><strong>SafeCar<span> Fleet</span></strong><small>CENTRAL DE OPERAÇÕES</small></div></div>
       <div className="workspace-label">AMBIENTE</div>
-      <div className="workspace"><span className="workspace-icon">SF</span><div><strong>{scope?.label||"Minha frota"}</strong><small>Firebase Firestore</small></div></div>
+      <div className="workspace"><Image className="workspace-icon" src="/icon.svg" width={35} height={35} alt="" /><div><strong>{scope?.label||"Minha frota"}</strong><small>Firebase Firestore</small></div></div>
       <div className="menu-label">PRINCIPAL</div>
       <nav aria-label="Navegação">{navigation.map(item=><button key={item.key} className={"nav-link "+(view===item.key?"selected":"")} onClick={()=>{setView(item.key);setMobileMenu(false);}}><span className="nav-icon">{item.icon}</span>{item.label}</button>)}</nav>
       <div className="sidebar-bottom"><div className="sidebar-help"><strong>Integração com o aplicativo</strong><p>Os veículos e as viagens exibidos aqui vêm do mesmo Firebase utilizado no SafeCar Flutter. Sem telemetria simulada.</p></div><div className="sidebar-footer"><span className="avatar">{(user.displayName||user.email||"S").slice(0,2).toUpperCase()}</span><span><strong>{user.displayName||"Conta SafeCar"}</strong><small>{user.email}</small></span></div><button className="logout" onClick={()=>signOut(auth)}>Sair da conta →</button></div>
     </aside>
     {mobileMenu&&<button className="scrim" aria-label="Fechar menu" onClick={()=>setMobileMenu(false)}/>}
     <main className="main">
-      <header className="topbar"><div className="top-left"><button className="mobile-toggle" aria-label="Abrir menu" onClick={()=>setMobileMenu(true)}>☰</button>SafeCar Fleet <span className="crumb">/</span><strong>{navigation.find(x=>x.key===view)?.label}</strong></div><div className="top-right"><span className="demo-dot"/><span>Conectado ao Firebase</span><span className="top-avatar">SF</span></div></header>
+      <header className="topbar"><div className="top-left"><button className="mobile-toggle" aria-label="Abrir menu" onClick={()=>setMobileMenu(true)}>☰</button>SafeCar Fleet <span className="crumb">/</span><strong>{navigation.find(x=>x.key===view)?.label}</strong></div><div className="top-right"><span className="demo-dot"/><span>Conectado ao Firebase</span><Image className="top-avatar" src="/icon.svg" width={35} height={35} alt="SafeCar Fleet" /></div></header>
       <div className="content">
         <div className="page-head"><div><span className="eyebrow">SAFECAR INTELLIGENCE</span><h1>{navigation.find(x=>x.key===view)?.label}</h1><p>Acompanhamento da sua frota com os dados armazenados no Firestore.</p></div><div className="head-actions"><span className="live-tag"><span/> Dados reais · sem localização ao vivo</span><select aria-label="Período" value={period} onChange={e=>setPeriod(e.target.value)}><option value="7">Últimos 7 dias</option><option value="30">Últimos 30 dias</option><option value="90">Últimos 90 dias</option></select></div></div>
         <section className="scope-panel"><div><h2>Fonte de dados: {scope?.label}</h2><p>{scope?.kind==="personal"?"Somente os veículos e viagens associados à sua conta.":"Você está lendo dados da organização com permissão administrativa."}</p></div><div className="scope-controls"><input aria-label="Identificador da organização" placeholder="ID da organização (opcional)" value={organizationId} onChange={e=>setOrganizationId(e.target.value)} /><button onClick={selectOrganization} disabled={switching||!organizationId.trim()}>{switching?"Validando...":"Acessar organização"}</button>{scope?.kind==="organization"&&<button className="outline-button" onClick={()=>{setScope({kind:"personal",uid:user.uid,label:"Minha frota"});setOrganizationError("");}}>Minha frota</button>}</div>{organizationError&&<p role="alert" className="scope-error">{organizationError}</p>}</section>
