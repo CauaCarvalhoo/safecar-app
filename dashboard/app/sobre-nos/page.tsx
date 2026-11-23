@@ -91,7 +91,28 @@ export default function SobreNos() {
             <div><span className="ux-fidelity-step">01 · BAIXA FIDELIDADE</span><div className="ux-wireframe"><div className="ux-wire-top"/><div className="ux-wire-side"/><div className="ux-wire-cards"><i/><i/><i/></div><div className="ux-wire-chart"/></div><strong>Wireframe esquemático</strong><p>Reconstrução didática para explicar agrupamento, hierarquia e navegação. Não é um rascunho histórico comprovado.</p></div>
             <div><span className="ux-fidelity-step">02 · ALTA FIDELIDADE</span><div className="ux-hi-fi"><div className="ux-fi-top">SafeCar Fleet <span>●</span></div><div className="ux-fi-cards"><i/><i/><i/></div><div className="ux-fi-chart"><i/><i/><i/><i/><i/></div></div><strong>Interface implementada</strong><p>Representação do painel Web atual, com identidade visual, indicadores, menu, hierarquia e feedback.</p></div>
           </div>
-          <p className="ux-evidence"><strong>Evidência a anexar pelo grupo:</strong> capturas datadas dos desenhos originais, fluxogramas e arquivos Figma/Penpot, caso tenham sido produzidos. Não afirmamos aqui que um protótipo nessas ferramentas já existe.</p>
+          <div className="ux-figma-evidence" aria-labelledby="figma-evidence-title">
+            <div className="ux-figma-intro">
+              <span className="ux-label">EVIDÊNCIAS REAIS DO GRUPO · FIGMA</span>
+              <h3 id="figma-evidence-title">Protótipos de alta fidelidade do início do projeto</h3>
+              <p>As capturas do Figma registram o estudo visual inicial do SafeCar: fluxos comuns de apresentação, cadastro e login, além das telas destinadas ao usuário. Elas demonstram o trabalho de concepção da interface antes das versões atuais do aplicativo e do dashboard Web.</p>
+            </div>
+            <div className="ux-figma-gallery">
+              <figure className="ux-figma-figure">
+                <a href="/evidencias/figma-tela-inicial.webp" target="_blank" rel="noopener noreferrer" aria-label="Abrir captura ampliada do Figma com telas iniciais do SafeCar">
+                  <img src="/evidencias/figma-tela-inicial.webp" alt="Captura do Figma: tela inicial do SafeCar, três telas de apresentação, seleção/cadastro de perfil e telas de login para usuário e assistente." loading="lazy" width="1401" height="556"/>
+                </a>
+                <figcaption><strong>01 — Telas iniciais e comuns</strong><span>Splash, apresentação, cadastro e autenticação. A sequência demonstra como o grupo introduziu o produto e organizou os primeiros passos do usuário.</span><small>Clique na imagem para ampliar.</small></figcaption>
+              </figure>
+              <figure className="ux-figma-figure">
+                <a href="/evidencias/figma-telas-usuario.webp" target="_blank" rel="noopener noreferrer" aria-label="Abrir captura ampliada do Figma com telas de usuário do SafeCar">
+                  <img src="/evidencias/figma-telas-usuario.webp" alt="Captura do Figma: telas de início do usuário, veículos, notificações, histórico de eventos e chat do SafeCar." loading="lazy" width="1155" height="540"/>
+                </a>
+                <figcaption><strong>02 — Telas do usuário</strong><span>Início, veículos, notificações, histórico de eventos e chat. Os protótipos mostram a separação de áreas e o uso de cartões, botões e navegação inferior.</span><small>Clique na imagem para ampliar.</small></figcaption>
+              </figure>
+            </div>
+            <p className="ux-figma-observation"><strong>Leitura crítica:</strong> estas imagens comprovam a existência dos protótipos visuais iniciais em Figma, mas não comprovam datas de edição, realização de entrevistas ou resultados de testes com usuários. Algumas funcionalidades representadas nos protótipos podem não estar disponíveis na versão atual.</p>
+          </div>
           <h3 className="ux-subheading">Princípios de Norman aplicados ao Dashboard</h3>
           <div className="ux-principles norman"><div><span>◉</span><strong>Visibilidade</strong><small>Menu explícito e indicadores reconhecíveis de imediato.</small></div><div><span>✓</span><strong>Feedback</strong><small>Carregamento, mensagens de erro e estados vazios.</small></div><div><span>↔</span><strong>Mapeamento</strong><small>O botão “Viagens” abre o histórico, não uma área inesperada.</small></div><div><span>↗</span><strong>Affordance</strong><small>Botões, links, campos e seletores evidenciam suas ações.</small></div></div>
         </section>
