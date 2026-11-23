@@ -14,12 +14,6 @@ const sections = [
   { id: "processo", number: "03", name: "Processo de design" },
   { id: "validacao", number: "04", name: "Avaliação e validação" },
 ];
-const metrics = [
-  { name: "Taxa de sucesso", how: "Tarefas concluídas sem ajuda ÷ tentativas × 100", evidence: "Registrar sucessos e falhas por participante" },
-  { name: "Tempo de tarefa", how: "Cronometrar do início até a conclusão da tarefa", evidence: "Mediana e intervalo (em segundos)" },
-  { name: "Taxa de erros", how: "Quantidade de erros por tarefa executada", evidence: "Erros, recuperações e causas" },
-  { name: "Satisfação", how: "Aplicar escala simples pós-tarefa (1–5)", evidence: "Média, comentários e obstáculos" },
-];
 export default function SobreNos() {
   return <div className="ux-page">
     <a className="ux-skip" href="#conteudo">Pular para o conteúdo</a>
