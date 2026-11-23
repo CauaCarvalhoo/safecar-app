@@ -1,0 +1,21 @@
+participante,tarefa,tempo_segundos,erros,concluiu,origem
+P01,Entrar e localizar Dashboard,22,0,sim,simulacao
+P01,Localizar veículo,14,0,sim,simulacao
+P01,Consultar histórico de viagens,36,1,sim,simulacao
+P01,Consultar alertas,28,0,sim,simulacao
+P02,Entrar e localizar Dashboard,31,0,sim,simulacao
+P02,Localizar veículo,18,0,sim,simulacao
+P02,Consultar histórico de viagens,44,1,sim,simulacao
+P02,Consultar alertas,35,0,sim,simulacao
+P03,Entrar e localizar Dashboard,27,0,sim,simulacao
+P03,Localizar veículo,16,0,sim,simulacao
+P03,Consultar histórico de viagens,39,0,sim,simulacao
+P03,Consultar alertas,32,1,sim,simulacao
+P04,Entrar e localizar Dashboard,35,0,sim,simulacao
+P04,Localizar veículo,19,0,sim,simulacao
+P04,Consultar histórico de viagens,47,1,sim,simulacao
+P04,Consultar alertas,41,1,nao,simulacao
+P05,Entrar e localizar Dashboard,24,0,sim,simulacao
+P05,Localizar veículo,15,0,sim,simulacao
+P05,Consultar histórico de viagens,33,0,sim,simulacao
+P05,Consultar alertas,29,0,sim,simulacao
