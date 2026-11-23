@@ -17,3 +17,25 @@
 .ux-figma-figure figcaption small{color:#3a6a60;font-size:11px}
 .ux-figma-observation{font-size:11px;line-height:1.75;margin:19px 0 0;color:#4f7660}
 @media(max-width:760px){.ux-figma-gallery{grid-template-columns:1fr}.ux-figma-evidence{padding:18px}.ux-figma-figure img{max-height:330px}}
+
+/* Relatório acadêmico e galeria das evidências do protótipo */
+.ux-report-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:23px 0}
+.ux-report-metrics>div{background:#eaf6ee;border:1px solid #cfebd6;border-radius:13px;padding:21px 18px;display:flex;flex-direction:column;gap:8px}
+.ux-report-metrics strong{color:#244b44;font-size:29px;letter-spacing:-.9px}
+.ux-report-metrics span{font-size:11px;color:#456b57;line-height:1.5}
+.ux-method-note{font-size:12px!important;line-height:1.8!important;background:#f2f8f3;padding:16px 19px;border-radius:9px;border-left:3px solid #3a6a60}
+.ux-hardware-gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin:22px 0 25px}
+.ux-hardware-card{margin:0;min-width:0;border:1px solid #d9e7df;background:#fff;border-radius:14px;overflow:hidden}
+.ux-hardware-card>a{display:flex;justify-content:center;align-items:center;height:270px;background:#e6f1eb;overflow:hidden}
+.ux-hardware-card a:focus-visible{outline:3px solid #bb8b19;outline-offset:-3px}
+.ux-hardware-card img{display:block;height:100%;max-width:100%;width:auto;object-fit:contain;transition:transform .15s}
+.ux-hardware-card a:hover img{transform:scale(1.035)}
+.ux-hardware-card figcaption{display:flex;flex-direction:column;gap:9px;padding:17px}
+.ux-hardware-card figcaption strong{font-size:13px;color:#244b44}
+.ux-hardware-card figcaption span{font-size:11px;color:#5f786b;line-height:1.7}
+.ux-report-link{margin-top:25px;background:#244b44;border-radius:14px;color:#fff;padding:24px;display:flex;justify-content:space-between;align-items:center;gap:18px}
+.ux-report-link strong{font-size:15px}
+.ux-report-link p{font-size:12px;line-height:1.7;color:#d1e7d9;margin:9px 0 0}
+.ux-report-link a{flex:0 0 auto;padding:13px 17px;color:#244b44!important;border-radius:9px;background:#e7f7ed;font-size:12px;font-weight:800}
+@media(max-width:850px){.ux-report-metrics{grid-template-columns:repeat(2,1fr)}.ux-hardware-gallery{grid-template-columns:repeat(2,1fr)}.ux-hardware-card>a{height:250px}}
+@media(max-width:590px){.ux-hardware-gallery{grid-template-columns:1fr}.ux-hardware-card>a{height:300px}.ux-report-link{flex-direction:column;align-items:flex-start}.ux-report-metrics>div{padding:16px}.ux-report-metrics strong{font-size:24px}}
