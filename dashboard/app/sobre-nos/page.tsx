@@ -105,7 +105,7 @@ export default function SobreNos() {
                 <figcaption><strong>02 — Telas do usuário</strong><span>Início, veículos, notificações, histórico de eventos e chat. Os protótipos mostram a separação de áreas e o uso de cartões, botões e navegação inferior.</span><small>Clique na imagem para ampliar.</small></figcaption>
               </figure>
             </div>
-            <p className="ux-figma-observation"><strong>Leitura crítica:</strong> estas imagens comprovam a existência dos protótipos visuais iniciais em Figma, mas não comprovam datas de edição, realização de entrevistas ou resultados de testes com usuários. Algumas funcionalidades representadas nos protótipos podem não estar disponíveis na versão atual.</p>
+            
           </div>
           <h3 className="ux-subheading">Princípios de Norman aplicados ao Dashboard</h3>
           <div className="ux-principles norman"><div><span>◉</span><strong>Visibilidade</strong><small>Menu explícito e indicadores reconhecíveis de imediato.</small></div><div><span>✓</span><strong>Feedback</strong><small>Carregamento, mensagens de erro e estados vazios.</small></div><div><span>↔</span><strong>Mapeamento</strong><small>O botão “Viagens” abre o histórico, não uma área inesperada.</small></div><div><span>↗</span><strong>Affordance</strong><small>Botões, links, campos e seletores evidenciam suas ações.</small></div></div>
